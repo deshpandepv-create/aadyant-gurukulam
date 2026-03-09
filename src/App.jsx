@@ -116,7 +116,10 @@ function studentTotalDue(student, cfg, overrides) {
 }
 
 
-const STUDENTS = [
+// ============================================================
+// PERSISTENT DATA STORE (localStorage)
+// ============================================================
+const SEED_STUDENTS = [
   {
     id: 1, name: "Aarav Sharma", class: "UKG", rollNo: "UKG001", dob: "2019-03-15",
     parent: "Rajesh Sharma", phone: "9876543210", admissionDate: "2024-06-01", photo: "🧒",
@@ -251,18 +254,6 @@ const STUDENTS = [
   },
 ];
 
-// Helper: derive simple fee status from payments
-function studentFeeStatus(student) {
-  const active = Object.entries(student.payments)
-    .filter(([, p]) => p.status !== "covered");
-  const hasOverdue  = active.some(([, p]) => p.status === "overdue");
-  const hasPending  = active.some(([, p]) => p.status === "pending");
-  const allPaid     = active.every(([, p]) => p.status === "paid");
-  if (hasOverdue) return "overdue";
-  if (hasPending) return "pending";
-  return "paid";
-}
-
 const ENROLLMENT_LABELS = {
   "full-year":     { label: "Full Year",      color: "#1565C0", bg: "#E3F2FD" },
   "term":          { label: "Term-based",     color: "#6A1B9A", bg: "#F3E5F5" },
@@ -274,7 +265,7 @@ const PAYMENT_MODE_LABELS = {
   "lump-sum":  { label: "Lump Sum",   icon: "💰" },
 };
 
-const MARKS = {
+const SEED_MARKS = {
   1: { "English": 88, "Mathematics": 92, "EVS": 85, "Hindi": 78, "General Knowledge": 90, "Art & Craft": 95, "Physical Education": 88 },
   2: { "English": 72, "Mathematics": 68, "EVS": 75, "Hindi": 80, "General Knowledge": 65, "Art & Craft": 85, "Physical Education": 90 },
   3: { "English": 80, "Mathematics": 88, "EVS": 76, "Hindi": 72, "Art & Craft": 78, "Physical Education": 92 },
@@ -285,7 +276,7 @@ const MARKS = {
   8: { "Play & Learn": 78, "Rhymes & Songs": 85, "Art & Craft": 90, "Physical Activity": 88 },
 };
 
-const SYLLABUS = {
+const SEED_SYLLABUS = {
   "UKG": {
     "English": [
       { topic: "Alphabet Recognition", done: true },
@@ -312,7 +303,7 @@ const SYLLABUS = {
   },
 };
 
-const EXAMS = [
+const SEED_EXAMS = [
   { id: 1, name: "Unit Test 1", class: "All", date: "2025-02-15", time: "9:00 AM", subject: "All Subjects", status: "completed" },
   { id: 2, name: "Mid Term Exam", class: "All", date: "2025-04-10", time: "9:00 AM", subject: "All Subjects", status: "upcoming" },
   { id: 3, name: "Unit Test 2", class: "UKG,LKG", date: "2025-06-20", time: "9:00 AM", subject: "All Subjects", status: "upcoming" },
@@ -321,11 +312,116 @@ const EXAMS = [
 
 
 
-const ANNOUNCEMENTS = [
+const SEED_ANNOUNCEMENTS = [
   { id: 1, title: "Annual Sports Day", date: "2025-01-25", content: "Annual Sports Day will be held on January 25th. Parents are invited!", category: "event" },
   { id: 2, title: "Parent-Teacher Meeting", date: "2025-01-18", content: "PTM scheduled for January 18th from 10 AM to 1 PM.", category: "meeting" },
   { id: 3, title: "Holiday Notice", date: "2025-01-26", content: "School will remain closed on Republic Day, January 26th.", category: "holiday" },
 ];
+
+// ============================================================
+// HELPER: fee status
+// ============================================================
+function studentFeeStatus(student) {
+  const active = Object.entries(student.payments).filter(([, p]) => p.status !== "covered");
+  if (active.some(([, p]) => p.status === "overdue")) return "overdue";
+  if (active.some(([, p]) => p.status === "pending")) return "pending";
+  return "paid";
+}
+
+// ============================================================
+// LOCALSTORAGE DATA STORE
+// ============================================================
+const LS_KEYS = { students: "ag_students", marks: "ag_marks", syllabus: "ag_syllabus", exams: "ag_exams", announcements: "ag_announcements", feeConfig: "ag_feeconfig", overrides: "ag_overrides" };
+
+function lsGet(key, seed) {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : seed; }
+  catch { return seed; }
+}
+function lsSet(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+}
+
+// React context for global app data
+const AppDataContext = React.createContext(null);
+
+function AppDataProvider({ children }) {
+  const [students, setStudentsRaw]     = useState(() => lsGet(LS_KEYS.students, SEED_STUDENTS));
+  const [marks, setMarksRaw]           = useState(() => lsGet(LS_KEYS.marks, SEED_MARKS));
+  const [syllabus, setSyllabusRaw]     = useState(() => lsGet(LS_KEYS.syllabus, SEED_SYLLABUS));
+  const [exams, setExamsRaw]           = useState(() => lsGet(LS_KEYS.exams, SEED_EXAMS));
+  const [announcements, setAnnouncementsRaw] = useState(() => lsGet(LS_KEYS.announcements, SEED_ANNOUNCEMENTS));
+  const [feeConfig, setFeeConfigRaw]   = useState(() => lsGet(LS_KEYS.feeConfig, DEFAULT_FEE_CONFIG));
+  const [studentOverrides, setOverridesRaw] = useState(() => lsGet(LS_KEYS.overrides, DEFAULT_STUDENT_FEE_OVERRIDES));
+
+  const setStudents = v => { const nv = typeof v === "function" ? v(students) : v; setStudentsRaw(nv); lsSet(LS_KEYS.students, nv); };
+  const setMarks    = v => { const nv = typeof v === "function" ? v(marks) : v;    setMarksRaw(nv);    lsSet(LS_KEYS.marks, nv); };
+  const setSyllabus = v => { const nv = typeof v === "function" ? v(syllabus) : v; setSyllabusRaw(nv); lsSet(LS_KEYS.syllabus, nv); };
+  const setExams    = v => { const nv = typeof v === "function" ? v(exams) : v;    setExamsRaw(nv);    lsSet(LS_KEYS.exams, nv); };
+  const setAnnouncements = v => { const nv = typeof v === "function" ? v(announcements) : v; setAnnouncementsRaw(nv); lsSet(LS_KEYS.announcements, nv); };
+  const setFeeConfig = v => { const nv = typeof v === "function" ? v(feeConfig) : v; setFeeConfigRaw(nv); lsSet(LS_KEYS.feeConfig, nv); };
+  const setStudentOverrides = v => { const nv = typeof v === "function" ? v(studentOverrides) : v; setOverridesRaw(nv); lsSet(LS_KEYS.overrides, nv); };
+
+  // Add student
+  const addStudent = (formData) => {
+    const nextId = students.length > 0 ? Math.max(...students.map(s => s.id)) + 1 : 1;
+    const newS = {
+      ...formData, id: nextId,
+      enrollmentType: "full-year", paymentMode: "monthly",
+      enrolledMonths: ALL_MONTHS.map(m => m.key),
+      payments: Object.fromEntries(ALL_MONTHS.map(m => [m.key, { amount: feeConfig.classMonthlyFee?.[formData.class] || 2000, status: "pending", date: null, txnId: null }]))
+    };
+    setStudents(prev => [...prev, newS]);
+    return newS;
+  };
+
+  // Update student payment
+  const recordPayment = (studentId, monthKey, paymentData) => {
+    setStudents(prev => prev.map(s => s.id !== studentId ? s : {
+      ...s, payments: { ...s.payments, [monthKey]: { ...s.payments[monthKey], ...paymentData, status: "paid", date: paymentData.date || new Date().toISOString().slice(0,10), txnId: paymentData.txnId || `TXN${Date.now()}` } }
+    }));
+  };
+
+  // Toggle syllabus topic done
+  const toggleSyllabusTopic = (cls, subject, topicIdx) => {
+    setSyllabus(prev => {
+      const updated = { ...prev };
+      if (updated[cls]?.[subject]?.[topicIdx] !== undefined) {
+        updated[cls] = { ...updated[cls], [subject]: updated[cls][subject].map((t, i) => i === topicIdx ? { ...t, done: !t.done } : t) };
+      }
+      return updated;
+    });
+  };
+
+  // Save marks
+  const saveMarks = (studentId, newMarks) => {
+    setMarks(prev => ({ ...prev, [studentId]: { ...(prev[studentId] || {}), ...newMarks } }));
+  };
+
+  // Add exam
+  const addExam = (exam) => {
+    const nextId = exams.length > 0 ? Math.max(...exams.map(e => e.id)) + 1 : 1;
+    setExams(prev => [...prev, { ...exam, id: nextId }]);
+  };
+
+  // Reset to seed data (for settings)
+  const resetAllData = () => {
+    setStudents(SEED_STUDENTS); setMarks(SEED_MARKS); setSyllabus(SEED_SYLLABUS);
+    setExams(SEED_EXAMS); setAnnouncements(SEED_ANNOUNCEMENTS);
+    setFeeConfig(DEFAULT_FEE_CONFIG); setStudentOverrides(DEFAULT_STUDENT_FEE_OVERRIDES);
+  };
+
+  return (
+    <AppDataContext.Provider value={{
+      students, marks, syllabus, exams, announcements, feeConfig, studentOverrides,
+      setStudents, setMarks, setSyllabus, setExams, setAnnouncements, setFeeConfig, setStudentOverrides,
+      addStudent, recordPayment, toggleSyllabusTopic, saveMarks, addExam, resetAllData
+    }}>
+      {children}
+    </AppDataContext.Provider>
+  );
+}
+
+function useAppData() { return React.useContext(AppDataContext); }
 
 // ============================================================
 // CSS INJECTION
@@ -757,6 +853,7 @@ function LoginScreen({ onLogin }) {
 
 // ---- DASHBOARD ----
 function Dashboard({ role }) {
+  const { students: STUDENTS, exams: EXAMS } = useAppData();
   const totalStudents = STUDENTS.length;
   const paidFees = STUDENTS.filter(s => studentFeeStatus(s) === "paid").length;
   const totalCollectedAmt = STUDENTS.reduce((sum, s) =>
@@ -853,6 +950,7 @@ function Dashboard({ role }) {
 
 // ---- STUDENTS ----
 function StudentsPage({ role }) {
+  const { students: STUDENTS, marks: MARKS, addStudent } = useAppData();
   const [search, setSearch] = useState("");
   const [classFilter, setClassFilter] = useState("All");
   const [feeFilter, setFeeFilter] = useState("All");
@@ -1152,9 +1250,10 @@ function StudentsPage({ role }) {
                   alert("Please fill all required fields (Name, DOB, Admission Date, Phone)");
                   return;
                 }
-                alert(`✅ Student "${newStudent.name}" registered!\nRoll No: ${newStudent.rollNo}\n\n(Demo mode — connect Supabase to persist data)`);
+                const saved = addStudent(newStudent);
                 setShowAdd(false);
                 setNewStudent(EMPTY_STUDENT);
+                alert(`✅ Student "${saved.name}" registered!\nRoll No: ${saved.rollNo}`);
               }}>Register Student</button>
             </div>
           </div>
@@ -1166,12 +1265,14 @@ function StudentsPage({ role }) {
 
 // ---- FEES ----
 function FeesPage({ role }) {
+  const { students: STUDENTS, feeConfig, studentOverrides, setFeeConfig, setStudentOverrides, recordPayment } = useAppData();
   const [activeTab, setActiveTab] = useState("overview");
-  const [selectedStudent, setSelectedStudent] = useState(STUDENTS[0]);
+  const [selectedStudent, setSelectedStudent] = useState(null);
   const [showRecord, setShowRecord] = useState(false);
   const [recordMonth, setRecordMonth] = useState(null);
   const [showEnrollModal, setShowEnrollModal] = useState(false);
   const canManage = role === "admin" || role === "principal";
+  const currentStudent = selectedStudent ? STUDENTS.find(s => s.id === selectedStudent.id) || STUDENTS[0] : STUDENTS[0];
 
   // Aggregates
   const totalExpected = STUDENTS.reduce((sum, s) => sum + s.enrolledMonths.length * MONTHLY_FEE, 0);
@@ -1412,11 +1513,11 @@ function FeesPage({ role }) {
             <div className="card">
               <div className="card-header">
                 <div>
-                  <div className="card-title">{selectedStudent.photo} {selectedStudent.name}</div>
+                  <div className="card-title">{currentStudent.photo} {currentStudent.name}</div>
                   <div style={{ fontSize: 11, color: palette.muted, marginTop: 2 }}>
-                    {ENROLLMENT_LABELS[selectedStudent.enrollmentType].label} ·
-                    {PAYMENT_MODE_LABELS[selectedStudent.paymentMode].icon} {PAYMENT_MODE_LABELS[selectedStudent.paymentMode].label} ·
-                    {selectedStudent.enrolledMonths.length} months enrolled
+                    {ENROLLMENT_LABELS[currentStudent.enrollmentType].label} ·
+                    {PAYMENT_MODE_LABELS[currentStudent.paymentMode].icon} {PAYMENT_MODE_LABELS[currentStudent.paymentMode].label} ·
+                    {currentStudent.enrolledMonths.length} months enrolled
                   </div>
                 </div>
                 {canManage && <button className="btn btn-primary btn-sm" onClick={() => setShowRecord(true)}>+ Record</button>}
@@ -1424,7 +1525,7 @@ function FeesPage({ role }) {
               <div className="card-body">
                 {/* Summary bar */}
                 {(() => {
-                  const { paid, due } = studentSummary(selectedStudent);
+                  const { paid, due } = studentSummary(currentStudent);
                   const total = paid + due;
                   const pct = total > 0 ? Math.round((paid / total) * 100) : 0;
                   return (
@@ -1442,7 +1543,7 @@ function FeesPage({ role }) {
 
                 {/* Month-wise schedule grouped by term */}
                 {TERMS.map(term => {
-                  const termMonths = selectedStudent.enrolledMonths
+                  const termMonths = currentStudent.enrolledMonths
                     .map(mk => ({ key: mk, mo: ALL_MONTHS.find(m => m.key === mk) }))
                     .filter(({ mo }) => mo && mo.term === term.id);
                   if (termMonths.length === 0) return null;
@@ -1452,7 +1553,7 @@ function FeesPage({ role }) {
                         {term.label} — {term.dates}
                       </div>
                       {termMonths.map(({ key, mo }) => {
-                        const p = selectedStudent.payments[key];
+                        const p = currentStudent.payments[key];
                         if (!p) return null;
                         if (p.status === "covered") {
                           return (
@@ -1493,23 +1594,36 @@ function FeesPage({ role }) {
       )}
 
       {/* RECORD PAYMENT MODAL */}
-      {showRecord && canManage && (
-        <div className="modal-overlay" onClick={() => setShowRecord(false)}>
+      {showRecord && canManage && (() => {
+        const payStudent = currentStudent;
+        const [payMonth, setPayMonth] = React.useState(recordMonth || "");
+        const [payAmount, setPayAmount] = React.useState("");
+        const [payDate, setPayDate] = React.useState(new Date().toISOString().split("T")[0]);
+        const [payMode, setPayMode] = React.useState("Cash");
+        const [payTxn, setPayTxn] = React.useState("");
+        const [payRemark, setPayRemark] = React.useState("");
+        React.useEffect(() => {
+          if (payMonth && payStudent?.payments?.[payMonth]) {
+            setPayAmount(String(payStudent.payments[payMonth].amount || ""));
+          }
+        }, [payMonth]);
+        return (
+        <div className="modal-overlay" onClick={() => { setShowRecord(false); setRecordMonth(null); }}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ width: 480 }}>
             <div className="modal-header">
               <div className="modal-title">Record Payment 💵</div>
-              <button className="close-btn" onClick={() => setShowRecord(false)}>✕</button>
+              <button className="close-btn" onClick={() => { setShowRecord(false); setRecordMonth(null); }}>✕</button>
             </div>
             <div style={{ marginBottom: 16, padding: 14, background: palette.offwhite, borderRadius: 12 }}>
-              <div style={{ fontSize: 13, fontWeight: 800 }}>{selectedStudent?.photo} {selectedStudent?.name}</div>
-              <div style={{ fontSize: 11, color: palette.muted, marginTop: 2 }}>{selectedStudent?.class} · {ENROLLMENT_LABELS[selectedStudent?.enrollmentType]?.label}</div>
+              <div style={{ fontSize: 13, fontWeight: 800 }}>{payStudent?.photo} {payStudent?.name}</div>
+              <div style={{ fontSize: 11, color: palette.muted, marginTop: 2 }}>{payStudent?.class} · {ENROLLMENT_LABELS[payStudent?.enrollmentType]?.label}</div>
             </div>
             <div className="form-row">
               <div className="form-group">
                 <label className="form-label">Payment For</label>
-                <select className="select" style={{ width: "100%" }} defaultValue={recordMonth || ""}>
+                <select className="select" style={{ width: "100%" }} value={payMonth} onChange={e => setPayMonth(e.target.value)}>
                   <option value="">Select month / installment</option>
-                  {selectedStudent && Object.entries(selectedStudent.payments)
+                  {payStudent && Object.entries(payStudent.payments)
                     .filter(([, p]) => p.status !== "paid" && p.status !== "covered" && p.amount > 0)
                     .map(([k, p]) => {
                       const mo = ALL_MONTHS.find(m => m.key === k);
@@ -1519,39 +1633,43 @@ function FeesPage({ role }) {
               </div>
               <div className="form-group">
                 <label className="form-label">Amount (₹)</label>
-                <input className="input" type="number" placeholder="Amount" defaultValue={2500} />
+                <input className="input" type="number" placeholder="Amount" value={payAmount} onChange={e => setPayAmount(e.target.value)} />
               </div>
             </div>
             <div className="form-row">
               <div className="form-group">
                 <label className="form-label">Payment Date</label>
-                <input className="input" type="date" defaultValue={new Date().toISOString().split("T")[0]} />
+                <input className="input" type="date" value={payDate} onChange={e => setPayDate(e.target.value)} />
               </div>
               <div className="form-group">
                 <label className="form-label">Payment Mode</label>
-                <select className="select" style={{ width: "100%" }}>
-                  <option>Cash</option>
-                  <option>UPI</option>
-                  <option>Bank Transfer</option>
-                  <option>Cheque</option>
+                <select className="select" style={{ width: "100%" }} value={payMode} onChange={e => setPayMode(e.target.value)}>
+                  <option>Cash</option><option>UPI</option><option>Bank Transfer</option><option>Cheque</option>
                 </select>
               </div>
             </div>
             <div className="form-group">
               <label className="form-label">Transaction / Receipt No.</label>
-              <input className="input" placeholder="e.g. UPI ref or cheque no." />
+              <input className="input" placeholder="e.g. UPI ref or cheque no." value={payTxn} onChange={e => setPayTxn(e.target.value)} />
             </div>
             <div className="form-group">
               <label className="form-label">Remarks (optional)</label>
-              <input className="input" placeholder="Any note" />
+              <input className="input" placeholder="Any note" value={payRemark} onChange={e => setPayRemark(e.target.value)} />
             </div>
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button className="btn btn-ghost" onClick={() => setShowRecord(false)}>Cancel</button>
-              <button className="btn btn-success" onClick={() => { alert("Payment recorded! (Demo)"); setShowRecord(false); setRecordMonth(null); }}>✓ Confirm Payment</button>
+              <button className="btn btn-ghost" onClick={() => { setShowRecord(false); setRecordMonth(null); }}>Cancel</button>
+              <button className="btn btn-success" onClick={() => {
+                if (!payMonth) { alert("Please select a month/installment"); return; }
+                if (!payAmount) { alert("Please enter amount"); return; }
+                recordPayment(payStudent.id, payMonth, { amount: Number(payAmount), date: payDate, txnId: payTxn || `${payMode}-${Date.now()}`, mode: payMode, remarks: payRemark });
+                alert(`✅ Payment of ₹${Number(payAmount).toLocaleString()} recorded for ${payStudent.name}`);
+                setShowRecord(false); setRecordMonth(null);
+              }}>✓ Confirm Payment</button>
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* ENROLLMENT CONFIG MODAL */}
       {showEnrollModal && canManage && (
@@ -1596,7 +1714,7 @@ function FeesPage({ role }) {
             </div>
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
               <button className="btn btn-ghost" onClick={() => setShowEnrollModal(false)}>Close</button>
-              <button className="btn btn-primary" onClick={() => { alert("Config saved! (Demo)"); setShowEnrollModal(false); }}>Save Config</button>
+              <button className="btn btn-primary" onClick={() => { setFeeConfig({...feeConfig}); setShowEnrollModal(false); alert("✅ Fee configuration saved!"); }}>Save Config</button>
             </div>
           </div>
         </div>
@@ -1607,6 +1725,7 @@ function FeesPage({ role }) {
 
 // ---- SYLLABUS ----
 function SyllabusPage({ role }) {
+  const { syllabus: SYLLABUS, toggleSyllabusTopic } = useAppData();
   const [selectedClass, setSelectedClass] = useState("UKG");
   const [selectedSubject, setSelectedSubject] = useState("English");
 
@@ -1614,7 +1733,6 @@ function SyllabusPage({ role }) {
   const syllabusData = SYLLABUS[selectedClass]?.[selectedSubject] || [];
   const done = syllabusData.filter(t => t.done).length;
   const canEdit = role === "admin" || role === "principal" || role === "teacher";
-
   return (
     <div className="page">
       <div className="page-header">
@@ -1694,7 +1812,8 @@ function SyllabusPage({ role }) {
                   <div key={i} className="syllabus-item">
                     <div className={`check-circle ${t.done ? "check-done" : "check-todo"}`}>{t.done ? "✓" : "○"}</div>
                     <span style={{ fontSize: 14, fontWeight: 600, color: t.done ? palette.navy : palette.muted, textDecoration: t.done ? "none" : "none" }}>{t.topic}</span>
-                    {canEdit && !t.done && <button className="btn btn-success btn-sm" style={{ marginLeft: "auto" }}>Mark Done</button>}
+                    {canEdit && !t.done && <button className="btn btn-success btn-sm" style={{ marginLeft: "auto" }} onClick={() => toggleSyllabusTopic(selectedClass, selectedSubject, i)}>Mark Done</button>}
+                    {canEdit && t.done && <button className="btn btn-ghost btn-sm" style={{ marginLeft: "auto", fontSize: 10 }} onClick={() => toggleSyllabusTopic(selectedClass, selectedSubject, i)}>Undo</button>}
                   </div>
                 ))}
               </>
@@ -1708,6 +1827,7 @@ function SyllabusPage({ role }) {
 
 // ---- EXAMS ----
 function ExamsPage({ role }) {
+  const { exams: EXAMS, addExam } = useAppData();
   const canEdit = role === "admin" || role === "principal";
   const [showAdd, setShowAdd] = useState(false);
 
@@ -1811,7 +1931,15 @@ function ExamsPage({ role }) {
             </div>
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
               <button className="btn btn-ghost" onClick={() => setShowAdd(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={() => { alert("Exam scheduled! (Demo)"); setShowAdd(false); }}>Schedule</button>
+              <button className="btn btn-primary" onClick={() => {
+                const form = document.getElementById("exam-form-modal");
+                const inputs = form ? form.querySelectorAll("input,select") : [];
+                const vals = {};
+                inputs.forEach(el => { if (el.name) vals[el.name] = el.value; });
+                addExam({ name: vals.name || "New Exam", class: vals.cls || "All", date: vals.date || "", time: vals.time || "9:00 AM", subject: vals.subject || "All Subjects", status: "upcoming" });
+                setShowAdd(false);
+                alert("✅ Exam scheduled and saved!");
+              }}>Schedule</button>
             </div>
           </div>
         </div>
@@ -1822,8 +1950,11 @@ function ExamsPage({ role }) {
 
 // ---- MARKS & PERFORMANCE ----
 function MarksPage({ role }) {
+  const { students: STUDENTS, marks: MARKS, saveMarks } = useAppData();
   const [selectedClass, setSelectedClass] = useState("UKG");
   const [selectedStudent, setSelectedStudent] = useState(null);
+  const [editMode, setEditMode] = useState(false);
+  const [editedMarks, setEditedMarks] = useState({});
   const classStudents = STUDENTS.filter(s => s.class === selectedClass);
   const canEdit = role === "admin" || role === "principal" || role === "teacher";
 
@@ -1956,6 +2087,7 @@ function MarksPage({ role }) {
 
 // ---- ANALYTICS ----
 function AnalyticsPage({ role }) {
+  const { students: STUDENTS, marks: MARKS, feeConfig, studentOverrides } = useAppData();
   const classStats = CLASSES.map(cls => {
     const students = STUDENTS.filter(s => s.class === cls);
     const avgScore = students.length
@@ -2071,7 +2203,8 @@ function AnalyticsPage({ role }) {
 }
 
 // ---- SETTINGS ----
-function SettingsPage({ role, feeConfig, setFeeConfig, studentOverrides, setStudentOverrides }) {
+function SettingsPage({ role }) {
+  const { feeConfig, setFeeConfig, studentOverrides, setStudentOverrides, students: STUDENTS, resetAllData } = useAppData();
   const [settingsTab, setSettingsTab] = useState("school");
   const [localCfg, setLocalCfg] = useState({ ...feeConfig });
   const [localClassFee, setLocalClassFee] = useState({ ...feeConfig.classMonthlyFee });
@@ -2549,18 +2682,23 @@ const roleAvatars = { admin: "👨‍💼", principal: "👩‍🏫", teacher: "
 const roleNames = { admin: "Admin User", principal: "Mrs. Sunita Rao", teacher: "Ms. Priya Nair", parent: "Rajesh Sharma" };
 
 export default function App() {
+  return (
+    <AppDataProvider>
+      <AppInner />
+    </AppDataProvider>
+  );
+}
+
+function AppInner() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [role, setRole] = useState("admin");
   const [page, setPage] = useState("dashboard");
-  const [feeConfig, setFeeConfig] = useState(DEFAULT_FEE_CONFIG);
-  const [studentOverrides, setStudentOverrides] = useState(DEFAULT_STUDENT_FEE_OVERRIDES);
 
   const handleLogin = (r) => { setRole(r); setLoggedIn(true); setPage("dashboard"); };
   if (!loggedIn) return <LoginScreen onLogin={handleLogin} />;
 
   const navItems = NAV[role] || NAV.admin;
   const rc = roleColors[role];
-  const feeProps = { feeConfig, studentOverrides };
 
   return (
     <>
@@ -2606,20 +2744,14 @@ export default function App() {
               </div>
             </div>
           </div>
-          {page === "dashboard" && <Dashboard role={role} {...feeProps} />}
-          {page === "students" && <StudentsPage role={role} {...feeProps} />}
-          {page === "fees" && <FeesPage role={role} {...feeProps} />}
+          {page === "dashboard" && <Dashboard role={role} />}
+          {page === "students" && <StudentsPage role={role} />}
+          {page === "fees" && <FeesPage role={role} />}
           {page === "syllabus" && <SyllabusPage role={role} />}
           {page === "exams" && <ExamsPage role={role} />}
           {page === "marks" && <MarksPage role={role} />}
-          {page === "analytics" && <AnalyticsPage role={role} {...feeProps} />}
-          {page === "settings" && (
-            <SettingsPage
-              role={role}
-              feeConfig={feeConfig} setFeeConfig={setFeeConfig}
-              studentOverrides={studentOverrides} setStudentOverrides={setStudentOverrides}
-            />
-          )}
+          {page === "analytics" && <AnalyticsPage role={role} />}
+          {page === "settings" && <SettingsPage role={role} />}
         </main>
       </div>
     </>
