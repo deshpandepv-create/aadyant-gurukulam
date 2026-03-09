@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 
 // ============================================================
 // DESIGN SYSTEM
@@ -853,7 +853,7 @@ function LoginScreen({ onLogin }) {
 
 // ---- DASHBOARD ----
 function Dashboard({ role }) {
-  const { students: STUDENTS, exams: EXAMS } = useAppData();
+  const { students: STUDENTS, exams: EXAMS, announcements: ANNOUNCEMENTS } = useAppData();
   const totalStudents = STUDENTS.length;
   const paidFees = STUDENTS.filter(s => studentFeeStatus(s) === "paid").length;
   const totalCollectedAmt = STUDENTS.reduce((sum, s) =>
@@ -1033,14 +1033,14 @@ function StudentsPage({ role }) {
                   <span className="chip" style={{ background: ENROLLMENT_LABELS[s.enrollmentType].bg, color: ENROLLMENT_LABELS[s.enrollmentType].color, fontSize: 10 }}>
                     {ENROLLMENT_LABELS[s.enrollmentType].label}
                   </span>
-                )}\
+                )}
               </div>
               <div style={{ marginTop: 12, fontSize: 12, color: palette.muted, display: "flex", gap: 16 }}>
                 <span>👨 {s.fatherName || s.parent}</span>
                 <span>📱 {s.phone.slice(-4).padStart(10, '*')}</span>
               </div>
             </div>
-          );\
+          );
         })}
       </div>
 
