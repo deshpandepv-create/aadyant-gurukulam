@@ -858,7 +858,24 @@ function StudentsPage({ role }) {
   const [feeFilter, setFeeFilter] = useState("All");
   const [selected, setSelected] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
-  const [newStudent, setNewStudent] = useState({ name: "", class: "UKG", rollNo: "", parent: "", phone: "", dob: "" });
+  const ROLL_PREFIXES = { Playgroup: "PG", Nursery: "NUR", LKG: "LKG", UKG: "UKG" };
+  const generateRollNo = (cls, admissionDate) => {
+    if (!admissionDate) return "";
+    const classStudents = STUDENTS.filter(s => s.class === cls);
+    const seq = String(classStudents.length + 1).padStart(3, "0");
+    const d = new Date(admissionDate);
+    const yr = String(d.getFullYear()).slice(2);
+    return `${ROLL_PREFIXES[cls] || cls.slice(0,3).toUpperCase()}${yr}${seq}`;
+  };
+  const EMPTY_STUDENT = { name: "", class: "UKG", rollNo: "", dob: "", admissionDate: "", fatherName: "", motherName: "", guardianName: "", guardianRelation: "", phone: "", altPhone: "", photo: null, photoPreview: null };
+  const [newStudent, setNewStudent] = useState(EMPTY_STUDENT);
+  const updateNewStudent = (field, val) => setNewStudent(prev => {
+    const updated = { ...prev, [field]: val };
+    if (field === "class" || field === "admissionDate") {
+      updated.rollNo = generateRollNo(updated.class, updated.admissionDate);
+    }
+    return updated;
+  });
 
   const filtered = STUDENTS.filter(s =>
     (classFilter === "All" || s.class === classFilter) &&
@@ -918,24 +935,32 @@ function StudentsPage({ role }) {
                   <span className="chip" style={{ background: ENROLLMENT_LABELS[s.enrollmentType].bg, color: ENROLLMENT_LABELS[s.enrollmentType].color, fontSize: 10 }}>
                     {ENROLLMENT_LABELS[s.enrollmentType].label}
                   </span>
-                )}
+                )}\
               </div>
               <div style={{ marginTop: 12, fontSize: 12, color: palette.muted, display: "flex", gap: 16 }}>
-                <span>👤 {s.parent}</span>
+                <span>👨 {s.fatherName || s.parent}</span>
                 <span>📱 {s.phone.slice(-4).padStart(10, '*')}</span>
               </div>
             </div>
-          );
+          );\
         })}
       </div>
 
       {/* Student Detail Modal */}
       {selected && (
         <div className="modal-overlay" onClick={() => setSelected(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
+          <div className="modal" style={{ maxHeight: "90vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                <div style={{ fontSize: 48 }}>{selected.photo}</div>
+                <div style={{
+                  width: 64, height: 64, borderRadius: "50%", overflow: "hidden",
+                  background: classColors[selected.class]?.light || palette.offwhite,
+                  display: "flex", alignItems: "center", justifyContent: "center", fontSize: 36, flexShrink: 0
+                }}>
+                  {selected.photoPreview
+                    ? <img src={selected.photoPreview} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" />
+                    : selected.photo}
+                </div>
                 <div>
                   <div className="modal-title">{selected.name}</div>
                   <div style={{ fontSize: 12, color: palette.muted }}>{selected.rollNo} · {selected.class}</div>
@@ -944,18 +969,38 @@ function StudentsPage({ role }) {
               <button className="close-btn" onClick={() => setSelected(null)}>✕</button>
             </div>
 
-            <div className="form-row" style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: palette.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Student Details</div>
+            <div className="form-row" style={{ marginBottom: 16 }}>
               {[
                 { label: "Date of Birth", value: selected.dob },
                 { label: "Admission Date", value: selected.admissionDate },
-                { label: "Parent/Guardian", value: selected.parent },
-                { label: "Contact", value: selected.phone },
               ].map((f, i) => (
                 <div key={i}>
                   <div className="form-label">{f.label}</div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: palette.navy }}>{f.value}</div>
                 </div>
               ))}
+            </div>
+
+            <div style={{ fontSize: 12, fontWeight: 800, color: palette.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Parent / Guardian</div>
+            <div className="form-row" style={{ marginBottom: 16 }}>
+              {[
+                { label: "Father's Name", value: selected.fatherName || selected.parent },
+                { label: "Mother's Name", value: selected.motherName || "—" },
+                { label: "Primary Mobile", value: selected.phone },
+                { label: "Alternate Mobile", value: selected.altPhone || "—" },
+              ].filter(f => f.value).map((f, i) => (
+                <div key={i}>
+                  <div className="form-label">{f.label}</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: palette.navy }}>{f.value}</div>
+                </div>
+              ))}
+              {selected.guardianName && (
+                <div>
+                  <div className="form-label">Guardian</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: palette.navy }}>{selected.guardianName} ({selected.guardianRelation || "Guardian"})</div>
+                </div>
+              )}
             </div>
 
             {MARKS[selected.id] && (
@@ -998,47 +1043,119 @@ function StudentsPage({ role }) {
 
       {/* Add Student Modal */}
       {showAdd && canEdit && (
-        <div className="modal-overlay" onClick={() => setShowAdd(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={() => { setShowAdd(false); setNewStudent(EMPTY_STUDENT); }}>
+          <div className="modal" style={{ maxWidth: 640, maxHeight: "90vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-title">Add New Student ✨</div>
-              <button className="close-btn" onClick={() => setShowAdd(false)}>✕</button>
+              <button className="close-btn" onClick={() => { setShowAdd(false); setNewStudent(EMPTY_STUDENT); }}>✕</button>
+            </div>
+
+            {/* Photo Upload */}
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
+              <div style={{ textAlign: "center" }}>
+                <div style={{
+                  width: 100, height: 100, borderRadius: "50%", border: `3px dashed ${palette.border}`,
+                  display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
+                  overflow: "hidden", background: palette.offwhite, margin: "0 auto 8px",
+                  position: "relative"
+                }} onClick={() => document.getElementById("student-photo-input").click()}>
+                  {newStudent.photoPreview
+                    ? <img src={newStudent.photoPreview} alt="preview" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    : <div style={{ fontSize: 32, color: palette.muted }}>📷</div>
+                  }
+                </div>
+                <input id="student-photo-input" type="file" accept="image/*" style={{ display: "none" }}
+                  onChange={e => {
+                    const file = e.target.files[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onload = ev => updateNewStudent("photoPreview", ev.target.result);
+                      reader.readAsDataURL(file);
+                      updateNewStudent("photo", file.name);
+                    }
+                  }} />
+                <div style={{ fontSize: 12, color: palette.muted }}>Click to upload photo</div>
+              </div>
+            </div>
+
+            {/* Basic Info */}
+            <div style={{ fontSize: 12, fontWeight: 800, color: palette.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Student Information</div>
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Full Name *</label>
+                <input className="input" placeholder="Student's full name" value={newStudent.name} onChange={e => updateNewStudent("name", e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Date of Birth *</label>
+                <input className="input" type="date" value={newStudent.dob} onChange={e => updateNewStudent("dob", e.target.value)} />
+              </div>
             </div>
             <div className="form-row">
               <div className="form-group">
-                <label className="form-label">Full Name</label>
-                <input className="input" placeholder="Student name" value={newStudent.name} onChange={e => setNewStudent({ ...newStudent, name: e.target.value })} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Class</label>
-                <select className="select" style={{ width: "100%" }} value={newStudent.class} onChange={e => setNewStudent({ ...newStudent, class: e.target.value })}>
+                <label className="form-label">Class *</label>
+                <select className="select" style={{ width: "100%" }} value={newStudent.class} onChange={e => updateNewStudent("class", e.target.value)}>
                   {CLASSES.map(c => <option key={c}>{c}</option>)}
                 </select>
               </div>
-            </div>
-            <div className="form-row">
               <div className="form-group">
-                <label className="form-label">Roll Number</label>
-                <input className="input" placeholder="e.g. UKG003" value={newStudent.rollNo} onChange={e => setNewStudent({ ...newStudent, rollNo: e.target.value })} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Date of Birth</label>
-                <input className="input" type="date" value={newStudent.dob} onChange={e => setNewStudent({ ...newStudent, dob: e.target.value })} />
+                <label className="form-label">Admission Date *</label>
+                <input className="input" type="date" value={newStudent.admissionDate} onChange={e => updateNewStudent("admissionDate", e.target.value)} />
               </div>
             </div>
             <div className="form-row">
               <div className="form-group">
-                <label className="form-label">Parent/Guardian</label>
-                <input className="input" placeholder="Parent name" value={newStudent.parent} onChange={e => setNewStudent({ ...newStudent, parent: e.target.value })} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Phone</label>
-                <input className="input" placeholder="10-digit number" value={newStudent.phone} onChange={e => setNewStudent({ ...newStudent, phone: e.target.value })} />
+                <label className="form-label">Roll Number (auto-generated)</label>
+                <input className="input" value={newStudent.rollNo} readOnly
+                  style={{ background: "#f0f4ff", color: palette.navy, fontWeight: 700, cursor: "not-allowed" }}
+                  placeholder="Select class & admission date" />
               </div>
             </div>
+
+            {/* Parents Info */}
+            <div style={{ fontSize: 12, fontWeight: 800, color: palette.muted, textTransform: "uppercase", letterSpacing: 1, margin: "16px 0 8px" }}>Parent / Guardian Information</div>
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Father's Name</label>
+                <input className="input" placeholder="Father's full name" value={newStudent.fatherName} onChange={e => updateNewStudent("fatherName", e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Mother's Name</label>
+                <input className="input" placeholder="Mother's full name" value={newStudent.motherName} onChange={e => updateNewStudent("motherName", e.target.value)} />
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Primary Mobile *</label>
+                <input className="input" type="tel" placeholder="10-digit mobile number" maxLength={10} value={newStudent.phone} onChange={e => updateNewStudent("phone", e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Alternate Mobile</label>
+                <input className="input" type="tel" placeholder="Optional alternate number" maxLength={10} value={newStudent.altPhone} onChange={e => updateNewStudent("altPhone", e.target.value)} />
+              </div>
+            </div>
+            <div style={{ padding: "10px 14px", background: "#f7f9fc", borderRadius: 8, border: `1px solid ${palette.border}`, marginBottom: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: palette.muted, marginBottom: 8 }}>Guardian (if different from parents)</div>
+              <div className="form-row" style={{ marginBottom: 0 }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <input className="input" placeholder="Guardian's name" value={newStudent.guardianName} onChange={e => updateNewStudent("guardianName", e.target.value)} />
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <input className="input" placeholder="Relation (e.g. Uncle, Grandparent)" value={newStudent.guardianRelation} onChange={e => updateNewStudent("guardianRelation", e.target.value)} />
+                </div>
+              </div>
+            </div>
+
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
-              <button className="btn btn-ghost" onClick={() => setShowAdd(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={() => { alert("Student registered! (Demo mode)"); setShowAdd(false); }}>Register Student</button>
+              <button className="btn btn-ghost" onClick={() => { setShowAdd(false); setNewStudent(EMPTY_STUDENT); }}>Cancel</button>
+              <button className="btn btn-primary" onClick={() => {
+                if (!newStudent.name || !newStudent.dob || !newStudent.admissionDate || !newStudent.phone) {
+                  alert("Please fill all required fields (Name, DOB, Admission Date, Phone)");
+                  return;
+                }
+                alert(`✅ Student "${newStudent.name}" registered!\nRoll No: ${newStudent.rollNo}\n\n(Demo mode — connect Supabase to persist data)`);
+                setShowAdd(false);
+                setNewStudent(EMPTY_STUDENT);
+              }}>Register Student</button>
             </div>
           </div>
         </div>
