@@ -331,7 +331,16 @@ function studentFeeStatus(student) {
 // ============================================================
 // LOCALSTORAGE DATA STORE
 // ============================================================
-const LS_KEYS = { students: "ag_students", marks: "ag_marks", syllabus: "ag_syllabus", exams: "ag_exams", announcements: "ag_announcements", feeConfig: "ag_feeconfig", overrides: "ag_overrides" };
+const SEED_USERS = [
+  { id: 1, name: "Mrs. Sunita Rao", email: "principal@aadyant.edu.in", role: "principal", phone: "9876500001", assignedClass: "", active: true, joinDate: "2023-06-01" },
+  { id: 2, name: "Ms. Priya Sharma", email: "priya@aadyant.edu.in", role: "teacher", phone: "9876500002", assignedClass: "UKG", active: true, joinDate: "2023-06-01" },
+  { id: 3, name: "Mr. Ravi Nair", email: "ravi@aadyant.edu.in", role: "teacher", phone: "9876500003", assignedClass: "LKG", active: true, joinDate: "2024-06-01" },
+  { id: 4, name: "Ms. Deepa Iyer", email: "deepa@aadyant.edu.in", role: "teacher", phone: "9876500004", assignedClass: "Nursery", active: true, joinDate: "2024-06-01" },
+  { id: 5, name: "Rajesh Sharma", email: "rajesh.s@gmail.com", role: "parent", phone: "9876543210", assignedClass: "", linkedStudentId: 1, active: true, joinDate: "2024-06-01" },
+  { id: 6, name: "Suresh Patel", email: "suresh.p@gmail.com", role: "parent", phone: "9876543211", assignedClass: "", linkedStudentId: 2, active: true, joinDate: "2024-06-01" },
+];
+
+const LS_KEYS = { students: "ag_students", marks: "ag_marks", syllabus: "ag_syllabus", exams: "ag_exams", announcements: "ag_announcements", feeConfig: "ag_feeconfig", overrides: "ag_overrides", users: "ag_users" };
 
 function lsGet(key, seed) {
   try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : seed; }
@@ -352,6 +361,7 @@ function AppDataProvider({ children }) {
   const [announcements, setAnnouncementsRaw] = useState(() => lsGet(LS_KEYS.announcements, SEED_ANNOUNCEMENTS));
   const [feeConfig, setFeeConfigRaw]   = useState(() => lsGet(LS_KEYS.feeConfig, DEFAULT_FEE_CONFIG));
   const [studentOverrides, setOverridesRaw] = useState(() => lsGet(LS_KEYS.overrides, DEFAULT_STUDENT_FEE_OVERRIDES));
+  const [users, setUsersRaw] = useState(() => lsGet(LS_KEYS.users, SEED_USERS));
 
   const setStudents = v => { const nv = typeof v === "function" ? v(students) : v; setStudentsRaw(nv); lsSet(LS_KEYS.students, nv); };
   const setMarks    = v => { const nv = typeof v === "function" ? v(marks) : v;    setMarksRaw(nv);    lsSet(LS_KEYS.marks, nv); };
@@ -360,6 +370,20 @@ function AppDataProvider({ children }) {
   const setAnnouncements = v => { const nv = typeof v === "function" ? v(announcements) : v; setAnnouncementsRaw(nv); lsSet(LS_KEYS.announcements, nv); };
   const setFeeConfig = v => { const nv = typeof v === "function" ? v(feeConfig) : v; setFeeConfigRaw(nv); lsSet(LS_KEYS.feeConfig, nv); };
   const setStudentOverrides = v => { const nv = typeof v === "function" ? v(studentOverrides) : v; setOverridesRaw(nv); lsSet(LS_KEYS.overrides, nv); };
+  const setUsers = v => { const nv = typeof v === "function" ? v(users) : v; setUsersRaw(nv); lsSet(LS_KEYS.users, nv); };
+
+  const addUser = (userData) => {
+    const nextId = users.length > 0 ? Math.max(...users.map(u => u.id)) + 1 : 1;
+    const newUser = { ...userData, id: nextId, active: true, joinDate: new Date().toISOString().slice(0, 10) };
+    setUsers(prev => [...prev, newUser]);
+    return newUser;
+  };
+  const updateUser = (id, updates) => {
+    setUsers(prev => prev.map(u => u.id === id ? { ...u, ...updates } : u));
+  };
+  const deleteUser = (id) => {
+    setUsers(prev => prev.filter(u => u.id !== id));
+  };
 
   // Add student
   const addStudent = (formData) => {
@@ -403,18 +427,19 @@ function AppDataProvider({ children }) {
     setExams(prev => [...prev, { ...exam, id: nextId }]);
   };
 
-  // Reset to seed data (for settings)
   const resetAllData = () => {
     setStudents(SEED_STUDENTS); setMarks(SEED_MARKS); setSyllabus(SEED_SYLLABUS);
     setExams(SEED_EXAMS); setAnnouncements(SEED_ANNOUNCEMENTS);
     setFeeConfig(DEFAULT_FEE_CONFIG); setStudentOverrides(DEFAULT_STUDENT_FEE_OVERRIDES);
+    setUsers(SEED_USERS);
   };
 
   return (
     <AppDataContext.Provider value={{
-      students, marks, syllabus, exams, announcements, feeConfig, studentOverrides,
-      setStudents, setMarks, setSyllabus, setExams, setAnnouncements, setFeeConfig, setStudentOverrides,
-      addStudent, recordPayment, toggleSyllabusTopic, saveMarks, addExam, resetAllData
+      students, marks, syllabus, exams, announcements, feeConfig, studentOverrides, users,
+      setStudents, setMarks, setSyllabus, setExams, setAnnouncements, setFeeConfig, setStudentOverrides, setUsers,
+      addStudent, recordPayment, toggleSyllabusTopic, saveMarks, addExam, resetAllData,
+      addUser, updateUser, deleteUser
     }}>
       {children}
     </AppDataContext.Provider>
@@ -2203,8 +2228,250 @@ function AnalyticsPage({ role }) {
 }
 
 // ---- SETTINGS ----
+// ---- USER MANAGEMENT PANEL ----
+function UserManagementPanel({ users, students, addUser, updateUser, deleteUser }) {
+  const ROLE_META = {
+    principal: { label: "Principal", icon: "👩‍💼", color: "#6A1B9A", bg: "#F3E5F5" },
+    teacher:   { label: "Teacher",   icon: "👩‍🏫", color: "#1565C0", bg: "#E3F2FD" },
+    parent:    { label: "Parent",    icon: "👨‍👩‍👧", color: "#2E7D32", bg: "#E8F5E9" },
+  };
+  const EMPTY_USER = { name: "", email: "", role: "teacher", phone: "", assignedClass: "", linkedStudentId: "" };
+  const [filterRole, setFilterRole] = useState("all");
+  const [showAdd, setShowAdd] = useState(false);
+  const [editUser, setEditUser] = useState(null);
+  const [form, setForm] = useState(EMPTY_USER);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [saved, setSaved] = useState(false);
+
+  const filtered = filterRole === "all" ? users : users.filter(u => u.role === filterRole);
+
+  function openAdd() { setForm(EMPTY_USER); setEditUser(null); setShowAdd(true); }
+  function openEdit(u) { setForm({ name: u.name, email: u.email, role: u.role, phone: u.phone || "", assignedClass: u.assignedClass || "", linkedStudentId: u.linkedStudentId || "" }); setEditUser(u); setShowAdd(true); }
+  function closeModal() { setShowAdd(false); setEditUser(null); }
+
+  function handleSave() {
+    if (!form.name.trim() || !form.email.trim()) return;
+    if (editUser) {
+      updateUser(editUser.id, form);
+    } else {
+      addUser(form);
+    }
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+    closeModal();
+  }
+
+  const counts = { principal: users.filter(u => u.role === "principal").length, teacher: users.filter(u => u.role === "teacher").length, parent: users.filter(u => u.role === "parent").length };
+
+  return (
+    <div>
+      {saved && (
+        <div style={{ padding: "12px 16px", background: "#E8F5E9", borderRadius: 12, marginBottom: 16, fontWeight: 700, color: "#388E3C" }}>
+          User saved successfully!
+        </div>
+      )}
+
+      {/* Summary Cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 24 }}>
+        {Object.entries(ROLE_META).map(([roleKey, meta]) => (
+          <div key={roleKey} style={{ background: meta.bg, border: `2px solid ${meta.color}22`, borderRadius: 16, padding: "18px 20px", cursor: "pointer" }}
+            onClick={() => setFilterRole(filterRole === roleKey ? "all" : roleKey)}>
+            <div style={{ fontSize: 28, marginBottom: 6 }}>{meta.icon}</div>
+            <div style={{ fontSize: 28, fontWeight: 900, color: meta.color }}>{counts[roleKey]}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: meta.color }}>{meta.label}s</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="card">
+        <div className="card-header">
+          <div className="card-title">All Users</div>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <select className="select" value={filterRole} onChange={e => setFilterRole(e.target.value)}>
+              <option value="all">All Roles</option>
+              <option value="principal">Principal</option>
+              <option value="teacher">Teacher</option>
+              <option value="parent">Parent</option>
+            </select>
+            <button className="btn btn-primary btn-sm" onClick={openAdd}>+ Add User</button>
+          </div>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th><th>Role</th><th>Email</th><th>Phone</th><th>Class / Student</th><th>Joined</th><th>Status</th><th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 && (
+                <tr><td colSpan={8} style={{ textAlign: "center", color: palette.muted, padding: 32 }}>No users found</td></tr>
+              )}
+              {filtered.map(u => {
+                const meta = ROLE_META[u.role] || {};
+                const linkedStudent = u.linkedStudentId ? students.find(s => s.id === Number(u.linkedStudentId)) : null;
+                return (
+                  <tr key={u.id}>
+                    <td>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div style={{ width: 36, height: 36, borderRadius: 10, background: meta.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>
+                          {meta.icon}
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 800, fontSize: 13, color: palette.navy }}>{u.name}</div>
+                          <div style={{ fontSize: 11, color: palette.muted }}>ID #{u.id}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, background: meta.bg, color: meta.color }}>
+                        {meta.icon} {meta.label}
+                      </span>
+                    </td>
+                    <td style={{ fontSize: 12 }}>{u.email}</td>
+                    <td style={{ fontSize: 12 }}>{u.phone || "—"}</td>
+                    <td style={{ fontSize: 12 }}>
+                      {u.role === "teacher" && u.assignedClass
+                        ? <span className="class-pill" style={{ background: classColors[u.assignedClass]?.bg || "#eee", color: classColors[u.assignedClass]?.accent || "#333" }}>{u.assignedClass}</span>
+                        : u.role === "parent" && linkedStudent
+                        ? <span style={{ fontWeight: 700, color: palette.navy }}>{linkedStudent.name}</span>
+                        : <span style={{ color: palette.muted }}>—</span>
+                      }
+                    </td>
+                    <td style={{ fontSize: 12, color: palette.muted }}>{u.joinDate}</td>
+                    <td>
+                      <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700,
+                        background: u.active ? "#E8F5E9" : "#FFEBEE", color: u.active ? "#388E3C" : "#C62828" }}>
+                        {u.active ? "Active" : "Inactive"}
+                      </span>
+                    </td>
+                    <td>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button className="btn btn-ghost btn-sm" onClick={() => openEdit(u)}>Edit</button>
+                        <button className="btn btn-ghost btn-sm" style={{ color: u.active ? "#C62828" : "#388E3C" }}
+                          onClick={() => updateUser(u.id, { active: !u.active })}>
+                          {u.active ? "Disable" : "Enable"}
+                        </button>
+                        <button className="btn btn-danger btn-sm" onClick={() => setConfirmDelete(u)}>🗑</button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Add/Edit Modal */}
+      {showAdd && (
+        <div className="modal-overlay" onClick={closeModal}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ width: 520 }}>
+            <div className="modal-header">
+              <div className="modal-title">{editUser ? "Edit User" : "Add New User"}</div>
+              <button className="close-btn" onClick={closeModal}>✕</button>
+            </div>
+
+            {/* Role selector */}
+            <div className="form-group">
+              <label className="form-label">Role</label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                {Object.entries(ROLE_META).map(([roleKey, meta]) => (
+                  <button key={roleKey} onClick={() => setForm(p => ({ ...p, role: roleKey }))}
+                    style={{ padding: "12px 8px", borderRadius: 12, border: `2px solid ${form.role === roleKey ? meta.color : palette.border}`,
+                      background: form.role === roleKey ? meta.bg : "white", cursor: "pointer", fontFamily: "'Nunito', sans-serif",
+                      fontWeight: 700, fontSize: 13, color: form.role === roleKey ? meta.color : palette.muted, textAlign: "center" }}>
+                    <div style={{ fontSize: 24, marginBottom: 4 }}>{meta.icon}</div>
+                    {meta.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Full Name *</label>
+                <input className="input" placeholder="Enter full name" value={form.name}
+                  onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Phone Number</label>
+                <input className="input" placeholder="10-digit mobile" value={form.phone}
+                  onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} />
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Email Address *</label>
+              <input className="input" type="email" placeholder="user@example.com" value={form.email}
+                onChange={e => setForm(p => ({ ...p, email: e.target.value }))} />
+            </div>
+
+            {form.role === "teacher" && (
+              <div className="form-group">
+                <label className="form-label">Assigned Class</label>
+                <select className="select" style={{ width: "100%" }} value={form.assignedClass}
+                  onChange={e => setForm(p => ({ ...p, assignedClass: e.target.value }))}>
+                  <option value="">— No Class Assigned —</option>
+                  {CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+            )}
+
+            {form.role === "parent" && (
+              <div className="form-group">
+                <label className="form-label">Linked Student</label>
+                <select className="select" style={{ width: "100%" }} value={form.linkedStudentId}
+                  onChange={e => setForm(p => ({ ...p, linkedStudentId: e.target.value }))}>
+                  <option value="">— Select Child —</option>
+                  {students.map(s => (
+                    <option key={s.id} value={s.id}>{s.name} ({s.class} - {s.rollNo})</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div style={{ padding: "12px 14px", background: palette.offwhite, borderRadius: 10, marginBottom: 20, fontSize: 12, color: palette.muted, fontWeight: 600 }}>
+              <strong style={{ color: palette.navy }}>Note:</strong> The user will be able to log in using this email. Password setup is handled separately.
+            </div>
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button className="btn btn-ghost" onClick={closeModal}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleSave}
+                disabled={!form.name.trim() || !form.email.trim()}
+                style={{ opacity: (!form.name.trim() || !form.email.trim()) ? 0.5 : 1 }}>
+                {editUser ? "Save Changes" : "Add User"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation */}
+      {confirmDelete && (
+        <div className="modal-overlay" onClick={() => setConfirmDelete(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ width: 420, textAlign: "center" }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
+            <div className="modal-title" style={{ marginBottom: 8 }}>Remove User?</div>
+            <div style={{ fontSize: 13, color: palette.muted, marginBottom: 24 }}>
+              Are you sure you want to remove <strong style={{ color: palette.navy }}>{confirmDelete.name}</strong>?
+              This cannot be undone.
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+              <button className="btn btn-ghost" onClick={() => setConfirmDelete(null)}>Cancel</button>
+              <button className="btn btn-danger" onClick={() => { deleteUser(confirmDelete.id); setConfirmDelete(null); setSaved(true); setTimeout(() => setSaved(false), 2000); }}>
+                Yes, Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SettingsPage({ role }) {
-  const { feeConfig, setFeeConfig, studentOverrides, setStudentOverrides, students: STUDENTS, resetAllData } = useAppData();
+  const { feeConfig, setFeeConfig, studentOverrides, setStudentOverrides, students: STUDENTS, resetAllData, users, addUser, updateUser, deleteUser } = useAppData();
   const [settingsTab, setSettingsTab] = useState("school");
   const [localCfg, setLocalCfg] = useState({ ...feeConfig });
   const [localClassFee, setLocalClassFee] = useState({ ...feeConfig.classMonthlyFee });
@@ -2267,7 +2534,7 @@ function SettingsPage({ role }) {
     <div className="page">
       <div className="page-header">
         <div className="page-title">Settings ⚙️</div>
-        <div className="page-sub">School profile, fee configuration and per-student overrides</div>
+        <div className="page-sub">School profile, fee configuration, user management and per-student overrides</div>
       </div>
 
       <div className="tabs">
@@ -2275,6 +2542,7 @@ function SettingsPage({ role }) {
           { id: "school", label: "🏫 School Profile" },
           { id: "fees", label: "💰 Fee Config" },
           { id: "overrides", label: "👤 Student Overrides" },
+          ...(role === "admin" ? [{ id: "users", label: "👥 User Management" }] : []),
         ].map(t => (
           <button key={t.id} className={`tab ${settingsTab === t.id ? "active" : ""}`} onClick={() => setSettingsTab(t.id)}>{t.label}</button>
         ))}
@@ -2538,6 +2806,10 @@ function SettingsPage({ role }) {
             </div>
           </div>
         </div>
+      )}
+
+      {settingsTab === "users" && role === "admin" && (
+        <UserManagementPanel users={users} students={STUDENTS} addUser={addUser} updateUser={updateUser} deleteUser={deleteUser} />
       )}
 
       {overrideStudent && canEdit && (
