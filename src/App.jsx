@@ -332,12 +332,12 @@ function studentFeeStatus(student) {
 // LOCALSTORAGE DATA STORE
 // ============================================================
 const SEED_USERS = [
-  { id: 1, name: "Mrs. Sunita Rao", email: "principal@aadyant.edu.in", role: "principal", phone: "9876500001", assignedClass: "", active: true, joinDate: "2023-06-01" },
-  { id: 2, name: "Ms. Priya Sharma", email: "priya@aadyant.edu.in", role: "teacher", phone: "9876500002", assignedClass: "UKG", active: true, joinDate: "2023-06-01" },
-  { id: 3, name: "Mr. Ravi Nair", email: "ravi@aadyant.edu.in", role: "teacher", phone: "9876500003", assignedClass: "LKG", active: true, joinDate: "2024-06-01" },
-  { id: 4, name: "Ms. Deepa Iyer", email: "deepa@aadyant.edu.in", role: "teacher", phone: "9876500004", assignedClass: "Nursery", active: true, joinDate: "2024-06-01" },
-  { id: 5, name: "Rajesh Sharma", email: "rajesh.s@gmail.com", role: "parent", phone: "9876543210", assignedClass: "", linkedStudentId: 1, active: true, joinDate: "2024-06-01" },
-  { id: 6, name: "Suresh Patel", email: "suresh.p@gmail.com", role: "parent", phone: "9876543211", assignedClass: "", linkedStudentId: 2, active: true, joinDate: "2024-06-01" },
+  { id: 1, name: "Mrs. Sunita Rao", email: "principal@aadyant.edu.in", role: "principal", phone: "9876500001", assignedClass: "", active: true, joinDate: "2023-06-01", passwordHash: null },
+  { id: 2, name: "Ms. Priya Sharma", email: "priya@aadyant.edu.in", role: "teacher", phone: "9876500002", assignedClass: "UKG", active: true, joinDate: "2023-06-01", passwordHash: null },
+  { id: 3, name: "Mr. Ravi Nair", email: "ravi@aadyant.edu.in", role: "teacher", phone: "9876500003", assignedClass: "LKG", active: true, joinDate: "2024-06-01", passwordHash: null },
+  { id: 4, name: "Ms. Deepa Iyer", email: "deepa@aadyant.edu.in", role: "teacher", phone: "9876500004", assignedClass: "Nursery", active: true, joinDate: "2024-06-01", passwordHash: null },
+  { id: 5, name: "Rajesh Sharma", email: "rajesh.s@gmail.com", role: "parent", phone: "9876543210", assignedClass: "", linkedStudentId: 1, active: true, joinDate: "2024-06-01", passwordHash: null },
+  { id: 6, name: "Suresh Patel", email: "suresh.p@gmail.com", role: "parent", phone: "9876543211", assignedClass: "", linkedStudentId: 2, active: true, joinDate: "2024-06-01", passwordHash: null },
 ];
 
 const LS_KEYS = { students: "ag_students", marks: "ag_marks", syllabus: "ag_syllabus", exams: "ag_exams", announcements: "ag_announcements", feeConfig: "ag_feeconfig", overrides: "ag_overrides", users: "ag_users" };
@@ -814,12 +814,54 @@ function improvements(marks) {
 // COMPONENTS
 // ============================================================
 
-function LoginScreen({ onLogin }) {
-  const [role, setRole] = useState("admin");
-  const [user, setUser] = useState("admin@littlestars.edu");
-  const [pass, setPass] = useState("password");
+// Simple hash (not cryptographic — for demo/localStorage use only)
+function simpleHash(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return String(Math.abs(hash));
+}
 
-  const roleIcons = { admin: "⚙️", principal: "🏫", teacher: "👩‍🏫", parent: "👨‍👩‍👧" };
+// Built-in admin account — always exists, cannot be deleted
+const ADMIN_ACCOUNT = {
+  id: 0, name: "Admin User", email: "admin@aadyant.edu.in",
+  passwordHash: simpleHash("admin123"), role: "admin",
+  phone: "", assignedClass: "", active: true, joinDate: "2023-01-01",
+};
+
+function LoginScreen({ onLogin, users }) {
+  const [email, setEmail] = useState("");
+  const [pass, setPass] = useState("");
+  const [error, setError] = useState("");
+  const [showPass, setShowPass] = useState(false);
+
+  function handleSubmit() {
+    if (!email.trim() || !pass.trim()) { setError("Please enter email and password."); return; }
+    const hash = simpleHash(pass);
+    // Check built-in admin first
+    if (email.trim().toLowerCase() === ADMIN_ACCOUNT.email && hash === ADMIN_ACCOUNT.passwordHash) {
+      onLogin("admin", ADMIN_ACCOUNT);
+      return;
+    }
+    // Check users list
+    const match = users.find(u => u.email.trim().toLowerCase() === email.trim().toLowerCase() && u.passwordHash === hash && u.active);
+    if (match) {
+      onLogin(match.role, match);
+    } else {
+      const emailMatch = users.find(u => u.email.trim().toLowerCase() === email.trim().toLowerCase());
+      if (emailMatch && !emailMatch.active) {
+        setError("This account has been disabled. Contact your admin.");
+      } else if (emailMatch && emailMatch.passwordHash !== hash) {
+        setError("Incorrect password.");
+      } else if (emailMatch && !emailMatch.passwordHash) {
+        setError("No password set for this account. Ask admin to set a password.");
+      } else {
+        setError("No account found with this email.");
+      }
+    }
+  }
 
   return (
     <div className="login-wrap">
@@ -842,31 +884,37 @@ function LoginScreen({ onLogin }) {
           <div className="login-logo-sub">Management Portal</div>
         </div>
 
-        <div style={{ marginBottom: 16 }}>
-          <div className="form-label">Sign in as</div>
-          <div className="role-selector">
-            {["admin", "principal", "teacher", "parent"].map(r => (
-              <button key={r} className={`role-btn ${role === r ? "selected" : ""}`} onClick={() => setRole(r)}>
-                {roleIcons[r]} {r.charAt(0).toUpperCase() + r.slice(1)}
-              </button>
-            ))}
+        {error && (
+          <div style={{ background: "#FFEBEE", color: "#C62828", borderRadius: 10, padding: "10px 14px", fontSize: 13, fontWeight: 700, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
+            ⚠️ {error}
           </div>
-        </div>
+        )}
 
         <div className="form-group">
-          <label className="form-label">Email</label>
-          <input className="input" value={user} onChange={e => setUser(e.target.value)} placeholder="Email address" />
+          <label className="form-label">Email Address</label>
+          <input className="input" type="email" value={email} onChange={e => { setEmail(e.target.value); setError(""); }}
+            placeholder="Enter your email" onKeyDown={e => e.key === "Enter" && handleSubmit()} />
         </div>
         <div className="form-group">
           <label className="form-label">Password</label>
-          <input className="input" type="password" value={pass} onChange={e => setPass(e.target.value)} placeholder="Password" />
+          <div style={{ position: "relative" }}>
+            <input className="input" type={showPass ? "text" : "password"} value={pass}
+              onChange={e => { setPass(e.target.value); setError(""); }}
+              placeholder="Enter your password" onKeyDown={e => e.key === "Enter" && handleSubmit()}
+              style={{ paddingRight: 44 }} />
+            <button onClick={() => setShowPass(s => !s)}
+              style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", fontSize: 16, color: palette.muted }}>
+              {showPass ? "🙈" : "👁️"}
+            </button>
+          </div>
         </div>
 
-        <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", padding: "12px", fontSize: 15, marginTop: 8 }} onClick={() => onLogin(role)}>
+        <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", padding: "12px", fontSize: 15, marginTop: 8 }} onClick={handleSubmit}>
           Sign In →
         </button>
-        <div style={{ textAlign: "center", marginTop: 16, fontSize: 12, color: palette.muted }}>
-          Demo: any credentials work. Select your role above.
+        <div style={{ textAlign: "center", marginTop: 16, fontSize: 12, color: palette.muted, lineHeight: 1.6 }}>
+          Default admin: <strong>admin@aadyant.edu.in</strong> / <strong>admin123</strong><br/>
+          Other users must be created by the admin with a password.
         </div>
         <div style={{ textAlign: "center", marginTop: 10, fontSize: 11, color: palette.border }}>
           © Deshpande Education Foundation
@@ -2235,26 +2283,41 @@ function UserManagementPanel({ users, students, addUser, updateUser, deleteUser 
     teacher:   { label: "Teacher",   icon: "👩‍🏫", color: "#1565C0", bg: "#E3F2FD" },
     parent:    { label: "Parent",    icon: "👨‍👩‍👧", color: "#2E7D32", bg: "#E8F5E9" },
   };
-  const EMPTY_USER = { name: "", email: "", role: "teacher", phone: "", assignedClass: "", linkedStudentId: "" };
+  const EMPTY_FORM = { name: "", email: "", role: "teacher", phone: "", assignedClass: "", linkedStudentId: "", password: "", confirmPassword: "" };
   const [filterRole, setFilterRole] = useState("all");
   const [showAdd, setShowAdd] = useState(false);
   const [editUser, setEditUser] = useState(null);
-  const [form, setForm] = useState(EMPTY_USER);
+  const [form, setForm] = useState(EMPTY_FORM);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [saved, setSaved] = useState(false);
+  const [showPass, setShowPass] = useState(false);
+  const [formError, setFormError] = useState("");
 
   const filtered = filterRole === "all" ? users : users.filter(u => u.role === filterRole);
 
-  function openAdd() { setForm(EMPTY_USER); setEditUser(null); setShowAdd(true); }
-  function openEdit(u) { setForm({ name: u.name, email: u.email, role: u.role, phone: u.phone || "", assignedClass: u.assignedClass || "", linkedStudentId: u.linkedStudentId || "" }); setEditUser(u); setShowAdd(true); }
-  function closeModal() { setShowAdd(false); setEditUser(null); }
+  function openAdd() { setForm(EMPTY_FORM); setEditUser(null); setFormError(""); setShowAdd(true); }
+  function openEdit(u) {
+    setForm({ name: u.name, email: u.email, role: u.role, phone: u.phone || "", assignedClass: u.assignedClass || "", linkedStudentId: u.linkedStudentId || "", password: "", confirmPassword: "" });
+    setEditUser(u); setFormError(""); setShowAdd(true);
+  }
+  function closeModal() { setShowAdd(false); setEditUser(null); setFormError(""); }
 
   function handleSave() {
-    if (!form.name.trim() || !form.email.trim()) return;
+    if (!form.name.trim() || !form.email.trim()) { setFormError("Name and email are required."); return; }
+    if (!editUser && !form.password.trim()) { setFormError("Password is required when creating a new user."); return; }
+    if (form.password && form.password !== form.confirmPassword) { setFormError("Passwords do not match."); return; }
+    if (form.password && form.password.length < 6) { setFormError("Password must be at least 6 characters."); return; }
+    // Check email uniqueness
+    const duplicate = users.find(u => u.email.trim().toLowerCase() === form.email.trim().toLowerCase() && (!editUser || u.id !== editUser.id));
+    if (duplicate) { setFormError("A user with this email already exists."); return; }
+
+    const updates = { name: form.name, email: form.email, role: form.role, phone: form.phone, assignedClass: form.assignedClass, linkedStudentId: form.linkedStudentId };
+    if (form.password) updates.passwordHash = simpleHash(form.password);
+
     if (editUser) {
-      updateUser(editUser.id, form);
+      updateUser(editUser.id, updates);
     } else {
-      addUser(form);
+      addUser(updates);
     }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -2267,7 +2330,7 @@ function UserManagementPanel({ users, students, addUser, updateUser, deleteUser 
     <div>
       {saved && (
         <div style={{ padding: "12px 16px", background: "#E8F5E9", borderRadius: 12, marginBottom: 16, fontWeight: 700, color: "#388E3C" }}>
-          User saved successfully!
+          ✅ User saved successfully!
         </div>
       )}
 
@@ -2300,7 +2363,7 @@ function UserManagementPanel({ users, students, addUser, updateUser, deleteUser 
           <table>
             <thead>
               <tr>
-                <th>Name</th><th>Role</th><th>Email</th><th>Phone</th><th>Class / Student</th><th>Joined</th><th>Status</th><th>Actions</th>
+                <th>Name</th><th>Role</th><th>Email</th><th>Phone</th><th>Class / Student</th><th>Password</th><th>Status</th><th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -2310,6 +2373,7 @@ function UserManagementPanel({ users, students, addUser, updateUser, deleteUser 
               {filtered.map(u => {
                 const meta = ROLE_META[u.role] || {};
                 const linkedStudent = u.linkedStudentId ? students.find(s => s.id === Number(u.linkedStudentId)) : null;
+                const hasPassword = !!u.passwordHash;
                 return (
                   <tr key={u.id}>
                     <td>
@@ -2338,7 +2402,12 @@ function UserManagementPanel({ users, students, addUser, updateUser, deleteUser 
                         : <span style={{ color: palette.muted }}>—</span>
                       }
                     </td>
-                    <td style={{ fontSize: 12, color: palette.muted }}>{u.joinDate}</td>
+                    <td>
+                      <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700,
+                        background: hasPassword ? "#E8F5E9" : "#FFF8E1", color: hasPassword ? "#388E3C" : "#E65100" }}>
+                        {hasPassword ? "🔒 Set" : "⚠️ Not set"}
+                      </span>
+                    </td>
                     <td>
                       <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700,
                         background: u.active ? "#E8F5E9" : "#FFEBEE", color: u.active ? "#388E3C" : "#C62828" }}>
@@ -2366,11 +2435,17 @@ function UserManagementPanel({ users, students, addUser, updateUser, deleteUser 
       {/* Add/Edit Modal */}
       {showAdd && (
         <div className="modal-overlay" onClick={closeModal}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ width: 520 }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ width: 540 }}>
             <div className="modal-header">
-              <div className="modal-title">{editUser ? "Edit User" : "Add New User"}</div>
+              <div className="modal-title">{editUser ? `Edit — ${editUser.name}` : "Add New User"}</div>
               <button className="close-btn" onClick={closeModal}>✕</button>
             </div>
+
+            {formError && (
+              <div style={{ background: "#FFEBEE", color: "#C62828", borderRadius: 10, padding: "10px 14px", fontSize: 13, fontWeight: 700, marginBottom: 16 }}>
+                ⚠️ {formError}
+              </div>
+            )}
 
             {/* Role selector */}
             <div className="form-group">
@@ -2392,7 +2467,7 @@ function UserManagementPanel({ users, students, addUser, updateUser, deleteUser 
               <div className="form-group">
                 <label className="form-label">Full Name *</label>
                 <input className="input" placeholder="Enter full name" value={form.name}
-                  onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
+                  onChange={e => { setForm(p => ({ ...p, name: e.target.value })); setFormError(""); }} />
               </div>
               <div className="form-group">
                 <label className="form-label">Phone Number</label>
@@ -2404,7 +2479,7 @@ function UserManagementPanel({ users, students, addUser, updateUser, deleteUser 
             <div className="form-group">
               <label className="form-label">Email Address *</label>
               <input className="input" type="email" placeholder="user@example.com" value={form.email}
-                onChange={e => setForm(p => ({ ...p, email: e.target.value }))} />
+                onChange={e => { setForm(p => ({ ...p, email: e.target.value })); setFormError(""); }} />
             </div>
 
             {form.role === "teacher" && (
@@ -2431,16 +2506,39 @@ function UserManagementPanel({ users, students, addUser, updateUser, deleteUser 
               </div>
             )}
 
-            <div style={{ padding: "12px 14px", background: palette.offwhite, borderRadius: 10, marginBottom: 20, fontSize: 12, color: palette.muted, fontWeight: 600 }}>
-              <strong style={{ color: palette.navy }}>Note:</strong> The user will be able to log in using this email. Password setup is handled separately.
+            <div style={{ borderTop: `1px solid ${palette.border}`, paddingTop: 16, marginTop: 4 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: palette.navy, marginBottom: 12 }}>
+                🔒 {editUser ? "Change Password" : "Set Password *"}
+                {editUser && <span style={{ fontSize: 11, fontWeight: 600, color: palette.muted, marginLeft: 8 }}>(leave blank to keep existing)</span>}
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">{editUser ? "New Password" : "Password *"}</label>
+                  <div style={{ position: "relative" }}>
+                    <input className="input" type={showPass ? "text" : "password"} placeholder="Min. 6 characters"
+                      value={form.password} onChange={e => { setForm(p => ({ ...p, password: e.target.value })); setFormError(""); }}
+                      style={{ paddingRight: 44 }} />
+                    <button onClick={() => setShowPass(s => !s)}
+                      style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", fontSize: 14, color: palette.muted }}>
+                      {showPass ? "🙈" : "👁️"}
+                    </button>
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Confirm Password</label>
+                  <input className="input" type={showPass ? "text" : "password"} placeholder="Re-enter password"
+                    value={form.confirmPassword} onChange={e => { setForm(p => ({ ...p, confirmPassword: e.target.value })); setFormError(""); }} />
+                </div>
+              </div>
+              {form.password && form.confirmPassword && form.password !== form.confirmPassword && (
+                <div style={{ fontSize: 12, color: "#C62828", fontWeight: 700, marginTop: -8, marginBottom: 8 }}>Passwords do not match</div>
+              )}
             </div>
 
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
               <button className="btn btn-ghost" onClick={closeModal}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleSave}
-                disabled={!form.name.trim() || !form.email.trim()}
-                style={{ opacity: (!form.name.trim() || !form.email.trim()) ? 0.5 : 1 }}>
-                {editUser ? "Save Changes" : "Add User"}
+              <button className="btn btn-primary" onClick={handleSave}>
+                {editUser ? "Save Changes" : "Create User"}
               </button>
             </div>
           </div>
@@ -2962,12 +3060,19 @@ export default function App() {
 }
 
 function AppInner() {
+  const { users } = useAppData();
   const [loggedIn, setLoggedIn] = useState(false);
   const [role, setRole] = useState("admin");
+  const [currentUser, setCurrentUser] = useState(null);
   const [page, setPage] = useState("dashboard");
 
-  const handleLogin = (r) => { setRole(r); setLoggedIn(true); setPage("dashboard"); };
-  if (!loggedIn) return <LoginScreen onLogin={handleLogin} />;
+  const handleLogin = (r, userObj) => { setRole(r); setCurrentUser(userObj); setLoggedIn(true); setPage("dashboard"); };
+  if (!loggedIn) return <LoginScreen onLogin={handleLogin} users={users} />;
+
+  const navItems = NAV[role] || NAV.admin;
+  const rc = roleColors[role];
+  const displayName = currentUser?.name || roleNames[role];
+  const displayAvatar = roleAvatars[role];
 
   const navItems = NAV[role] || NAV.admin;
   const rc = roleColors[role];
@@ -3008,9 +3113,9 @@ function AppInner() {
             <div className="topbar-right">
               <div className="notification-btn">🔔<div className="notif-dot" /></div>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div className="topbar-avatar">{roleAvatars[role]}</div>
+                <div className="topbar-avatar">{displayAvatar}</div>
                 <div style={{ display: "flex", flexDirection: "column" }}>
-                  <div style={{ fontSize: 13, fontWeight: 800, color: palette.navy }}>{roleNames[role]}</div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: palette.navy }}>{displayName}</div>
                   <div style={{ fontSize: 11, color: palette.muted, textTransform: "capitalize" }}>{role}</div>
                 </div>
               </div>
