@@ -70,9 +70,27 @@ const ALL_MONTHS = [
 const MONTHLY_FEE = 2500; // legacy fallback
 
 // ── FEE CONFIGURATION ───────────────────────────────────────────────────────
+// feeStructure: per-class fees for each payment mode
+// modes: monthly | term1 (first half: Jun-Nov) | term2 (second half: Dec-Mar) | fullYear
+const DEFAULT_FEE_STRUCTURE = {
+  Playgroup: { monthly: 2000, term1: 11000, term2: 7000, fullYear: 17000 },
+  Nursery:   { monthly: 2200, term1: 12000, term2: 7700, fullYear: 18700 },
+  LKG:       { monthly: 2500, term1: 13500, term2: 8750, fullYear: 21500 },
+  UKG:       { monthly: 2500, term1: 13500, term2: 8750, fullYear: 21500 },
+};
+
 const DEFAULT_FEE_CONFIG = {
-  academicYear: "2024-25",
-  yearLabel: "June 2024 – March 2025",
+  activeYear: "2024-25",
+  years: {
+    "2024-25": {
+      label: "June 2024 – March 2025",
+      registrationFee: 1000,
+      lateFinePerMonth: 100,
+      autoApplyLateFine: true,
+      feeStructure: DEFAULT_FEE_STRUCTURE,
+    }
+  },
+  // legacy fields kept for backward compat
   classMonthlyFee: { Playgroup: 2000, Nursery: 2200, LKG: 2500, UKG: 2500 },
   termDiscountPct: 2,
   lumpSumDiscountPct: 5,
@@ -2831,31 +2849,320 @@ function UserManagementPanel({ users, students, addUser, updateUser, deleteUser 
   );
 }
 
-function SettingsPage({ role }) {
-  const { feeConfig, setFeeConfig, studentOverrides, setStudentOverrides, students: STUDENTS, resetAllData, users, addUser, updateUser, deleteUser, announcements: ANNOUNCEMENTS, addAnnouncement, deleteAnnouncement, exams: EXAMS, addExam, deleteExam } = useAppData();
-  const [settingsTab, setSettingsTab] = useState("school");
-  const canManageContent = role === "admin" || role === "principal" || role === "teacher";
-  const [localCfg, setLocalCfg] = useState({ ...feeConfig });
-  const [localClassFee, setLocalClassFee] = useState({ ...feeConfig.classMonthlyFee });
-  const [overrideStudent, setOverrideStudent] = useState(null);
-  const [localOverride, setLocalOverride] = useState({});
+// ── FEE CONFIG PANEL ─────────────────────────────────────────────────────────
+function FeeConfigPanel({ feeConfig, setFeeConfig, canEdit, STUDENTS }) {
+  const ensureYears = (cfg) => {
+    if (cfg.years) return cfg;
+    // migrate legacy config to new multi-year structure
+    return {
+      ...cfg,
+      activeYear: cfg.academicYear || "2024-25",
+      years: {
+        [cfg.academicYear || "2024-25"]: {
+          label: cfg.yearLabel || "June 2024 – March 2025",
+          registrationFee: cfg.registrationFee || 1000,
+          lateFinePerMonth: cfg.lateFinePerMonth || 100,
+          autoApplyLateFine: cfg.autoApplyLateFine !== false,
+          feeStructure: CLASSES.reduce((acc, cls) => {
+            const m = cfg.classMonthlyFee?.[cls] || 2000;
+            acc[cls] = { monthly: m, term1: Math.round(m * 6), term2: Math.round(m * 4), fullYear: Math.round(m * 10) };
+            return acc;
+          }, {}),
+        }
+      }
+    };
+  };
+
+  const [cfg, setCfg] = useState(() => ensureYears({ ...feeConfig }));
   const [saved, setSaved] = useState(false);
-  const canEdit = role === "admin" || role === "principal";
+  const [showAddYear, setShowAddYear] = useState(false);
+  const [newYearKey, setNewYearKey] = useState("");
+  const [newYearLabel, setNewYearLabel] = useState("");
+
+  const activeYear = cfg.activeYear;
+  const yearData = cfg.years?.[activeYear] || {};
+  const feeStructure = yearData.feeStructure || {};
+
+  function updateFeeMode(cls, mode, value) {
+    setCfg(prev => ({
+      ...prev,
+      years: {
+        ...prev.years,
+        [activeYear]: {
+          ...prev.years[activeYear],
+          feeStructure: {
+            ...prev.years[activeYear].feeStructure,
+            [cls]: { ...prev.years[activeYear].feeStructure[cls], [mode]: Number(value) }
+          }
+        }
+      }
+    }));
+  }
+
+  function updateYearMeta(field, value) {
+    setCfg(prev => ({
+      ...prev,
+      years: { ...prev.years, [activeYear]: { ...prev.years[activeYear], [field]: value } }
+    }));
+  }
 
   function saveConfig() {
-    setFeeConfig({ ...localCfg, classMonthlyFee: { ...localClassFee } });
+    // also keep legacy fields in sync for backward compat
+    const legacyClassMonthlyFee = CLASSES.reduce((acc, cls) => {
+      acc[cls] = feeStructure[cls]?.monthly || 2000;
+      return acc;
+    }, {});
+    setFeeConfig({
+      ...cfg,
+      classMonthlyFee: legacyClassMonthlyFee,
+      registrationFee: yearData.registrationFee,
+      lateFinePerMonth: yearData.lateFinePerMonth,
+      autoApplyLateFine: yearData.autoApplyLateFine,
+    });
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   }
 
+  function addYear() {
+    if (!newYearKey || !newYearLabel) return;
+    // Copy feeStructure from active year as starting point
+    setCfg(prev => ({
+      ...prev,
+      years: {
+        ...prev.years,
+        [newYearKey]: {
+          label: newYearLabel,
+          registrationFee: yearData.registrationFee || 1000,
+          lateFinePerMonth: yearData.lateFinePerMonth || 100,
+          autoApplyLateFine: true,
+          feeStructure: JSON.parse(JSON.stringify(feeStructure)),
+        }
+      },
+      activeYear: newYearKey,
+    }));
+    setShowAddYear(false);
+    setNewYearKey(""); setNewYearLabel("");
+  }
+
+  const modeInfo = [
+    { key: "monthly",  label: "Monthly",       icon: "📅", color: "#42A5F5", desc: "Per month fee" },
+    { key: "term1",    label: "Term 1",         icon: "📗", color: "#66BB6A", desc: "Jun – Nov (first half)" },
+    { key: "term2",    label: "Term 2",         icon: "📘", color: "#AB47BC", desc: "Dec – Mar (second half)" },
+    { key: "fullYear", label: "Full Year",      icon: "🎯", color: "#FF8A65", desc: "Entire year upfront" },
+  ];
+
+  return (
+    <div>
+      {saved && (
+        <div style={{ padding: "12px 16px", background: "#E8F5E9", borderRadius: 12, marginBottom: 16, fontWeight: 700, color: "#388E3C" }}>
+          ✅ Fee configuration saved successfully!
+        </div>
+      )}
+
+      {/* Year selector header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: palette.muted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>Academic Year</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {Object.entries(cfg.years || {}).map(([yk, yd]) => (
+              <button key={yk} onClick={() => setCfg(p => ({ ...p, activeYear: yk }))}
+                style={{ padding: "8px 18px", borderRadius: 20, border: `2px solid ${yk === activeYear ? palette.navy : palette.border}`,
+                  background: yk === activeYear ? palette.navy : "white", color: yk === activeYear ? "white" : palette.navy,
+                  fontWeight: 800, fontSize: 14, cursor: "pointer", fontFamily: "Fredoka One, cursive", letterSpacing: 0.5 }}>
+                {yk}
+                {yk === activeYear && <span style={{ marginLeft: 6, fontSize: 10, opacity: 0.8 }}>({yd.label})</span>}
+              </button>
+            ))}
+            {canEdit && (
+              <button onClick={() => setShowAddYear(v => !v)}
+                style={{ padding: "8px 14px", borderRadius: 20, border: `2px dashed ${palette.border}`,
+                  background: "white", color: palette.muted, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+                + New Year
+              </button>
+            )}
+          </div>
+        </div>
+        <div style={{ padding: "10px 20px", background: "linear-gradient(135deg, #1A2340, #2D4A8C)", borderRadius: 14, color: "white", textAlign: "center", minWidth: 120 }}>
+          <div style={{ fontSize: 28 }}>📅</div>
+          <div style={{ fontSize: 11, opacity: 0.8, fontWeight: 700 }}>{yearData.label}</div>
+        </div>
+      </div>
+
+      {/* Add year modal */}
+      {showAddYear && (
+        <div className="card" style={{ marginBottom: 20, border: `2px dashed ${palette.sky}` }}>
+          <div className="card-header"><div className="card-title">➕ Add New Academic Year</div></div>
+          <div className="card-body">
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">Year Key (e.g. 2025-26)</label>
+                <input className="input" placeholder="2025-26" value={newYearKey} onChange={e => setNewYearKey(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Label (e.g. June 2025 – March 2026)</label>
+                <input className="input" placeholder="June 2025 – March 2026" value={newYearLabel} onChange={e => setNewYearLabel(e.target.value)} />
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: palette.muted, marginBottom: 12 }}>
+              Fee structure will be copied from the current active year ({activeYear}) as a starting point.
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button className="btn btn-primary" onClick={addYear} disabled={!newYearKey || !newYearLabel}>Create Year</button>
+              <button className="btn btn-ghost" onClick={() => setShowAddYear(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Fee table per class × mode */}
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div className="card-header">
+          <div className="card-title">Fee Structure — {activeYear}</div>
+          <div style={{ fontSize: 12, color: palette.muted }}>Set exact fees for each class and payment option</div>
+        </div>
+        <div className="card-body" style={{ padding: 0 }}>
+          {/* Mode legend */}
+          <div style={{ display: "flex", gap: 10, padding: "12px 20px", flexWrap: "wrap", borderBottom: `1px solid ${palette.border}` }}>
+            {modeInfo.map(m => (
+              <div key={m.key} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 12px", background: `${m.color}15`, borderRadius: 20, border: `1px solid ${m.color}40` }}>
+                <span>{m.icon}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: m.color }}>{m.label}</span>
+                <span style={{ fontSize: 11, color: palette.muted }}>{m.desc}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Per-class rows */}
+          {CLASSES.map(cls => {
+            const cc = classColors[cls];
+            const fees = feeStructure[cls] || { monthly: 2000, term1: 11000, term2: 7000, fullYear: 17000 };
+            const studentCount = STUDENTS.filter(s => s.class === cls).length;
+            return (
+              <div key={cls} style={{ padding: "16px 20px", borderBottom: `1px solid ${palette.border}` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                  <span className="class-pill" style={{ background: cc.bg, color: cc.accent, fontSize: 14, fontWeight: 900 }}>{cls}</span>
+                  <span style={{ fontSize: 12, color: palette.muted }}>{studentCount} student{studentCount !== 1 ? "s" : ""}</span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
+                  {modeInfo.map(m => (
+                    <div key={m.key} style={{ background: `${m.color}08`, borderRadius: 12, padding: "12px 14px", border: `1.5px solid ${m.color}30` }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                        <span style={{ fontSize: 16 }}>{m.icon}</span>
+                        <span style={{ fontSize: 12, fontWeight: 800, color: m.color }}>{m.label}</span>
+                      </div>
+                      <div style={{ fontSize: 10, color: palette.muted, marginBottom: 8 }}>{m.desc}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: palette.navy }}>₹</span>
+                        <input
+                          className="input"
+                          type="number"
+                          min="0"
+                          step="100"
+                          value={fees[m.key] ?? ""}
+                          disabled={!canEdit}
+                          onChange={e => updateFeeMode(cls, m.key, e.target.value)}
+                          style={{ maxWidth: 110, fontWeight: 800, fontSize: 15, textAlign: "right" }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Other fees */}
+      <div className="grid-2" style={{ marginBottom: 20 }}>
+        <div className="card">
+          <div className="card-header"><div className="card-title">Other Fees & Fines</div></div>
+          <div className="card-body">
+            <div className="form-group">
+              <label className="form-label">Registration / Admission Fee (₹)</label>
+              <input className="input" type="number" value={yearData.registrationFee ?? 1000}
+                disabled={!canEdit}
+                onChange={e => updateYearMeta("registrationFee", Number(e.target.value))}
+                style={{ maxWidth: 160 }} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Late Fine Per Month (₹)</label>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <input className="input" type="number" value={yearData.lateFinePerMonth ?? 100}
+                  disabled={!canEdit}
+                  onChange={e => updateYearMeta("lateFinePerMonth", Number(e.target.value))}
+                  style={{ maxWidth: 120 }} />
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                  <input type="checkbox" checked={yearData.autoApplyLateFine !== false}
+                    disabled={!canEdit}
+                    onChange={e => updateYearMeta("autoApplyLateFine", e.target.checked)} />
+                  Auto-apply
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Summary table */}
+        <div className="card">
+          <div className="card-header"><div className="card-title">Quick Summary — {activeYear}</div></div>
+          <div className="table-wrap" style={{ overflow: "auto" }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Class</th>
+                  {modeInfo.map(m => <th key={m.key}>{m.icon} {m.label}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {CLASSES.map(cls => {
+                  const cc = classColors[cls];
+                  const fees = feeStructure[cls] || {};
+                  return (
+                    <tr key={cls}>
+                      <td><span className="class-pill" style={{ background: cc.bg, color: cc.accent }}>{cls}</span></td>
+                      {modeInfo.map(m => (
+                        <td key={m.key} style={{ fontWeight: m.key === "fullYear" ? 800 : 600, color: m.key === "fullYear" ? palette.green : "inherit" }}>
+                          ₹{(fees[m.key] || 0).toLocaleString()}
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {canEdit && (
+        <div style={{ display: "flex", gap: 12 }}>
+          <button className="btn btn-primary" onClick={saveConfig}>💾 Save Fee Configuration</button>
+          <button className="btn btn-ghost" onClick={() => setCfg(ensureYears({ ...feeConfig }))}>↺ Reset</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SettingsPage({ role }) {
+  const { feeConfig, setFeeConfig, studentOverrides, setStudentOverrides, students: STUDENTS, resetAllData, users, addUser, updateUser, deleteUser, announcements: ANNOUNCEMENTS, addAnnouncement, deleteAnnouncement, exams: EXAMS, addExam, deleteExam } = useAppData();
+  const [settingsTab, setSettingsTab] = useState("school");
+  const canManageContent = role === "admin" || role === "principal" || role === "teacher";
+  const [overrideStudent, setOverrideStudent] = useState(null);
+  const [localOverride, setLocalOverride] = useState({});
+  const canEdit = role === "admin" || role === "principal";
+
   function openOverride(student) {
     const existing = studentOverrides[student.id] || {};
+    const activeYearData = feeConfig.years?.[feeConfig.activeYear] || {};
+    const classMonthlyFee = activeYearData.feeStructure?.[student.class]?.monthly ?? feeConfig.classMonthlyFee?.[student.class] ?? 2500;
     setLocalOverride({
-      monthlyFee: existing.monthlyFee ?? feeConfig.classMonthlyFee[student.class] ?? 2500,
+      monthlyFee: existing.monthlyFee ?? classMonthlyFee,
       concessionPct: existing.concessionPct ?? 0,
       concessionReason: existing.concessionReason ?? "",
-      lumpSumDiscountPct: existing.lumpSumDiscountPct ?? feeConfig.lumpSumDiscountPct,
-      termDiscountPct: existing.termDiscountPct ?? feeConfig.termDiscountPct,
+      lumpSumDiscountPct: existing.lumpSumDiscountPct ?? 5,
+      termDiscountPct: existing.termDiscountPct ?? 2,
       feeNote: existing.feeNote ?? "",
     });
     setOverrideStudent(student);
@@ -2863,12 +3170,13 @@ function SettingsPage({ role }) {
 
   function saveOverride() {
     const updated = { ...studentOverrides };
-    const base = feeConfig.classMonthlyFee[overrideStudent.class];
+    const activeYearData = feeConfig.years?.[feeConfig.activeYear] || {};
+    const base = activeYearData.feeStructure?.[overrideStudent.class]?.monthly ?? feeConfig.classMonthlyFee?.[overrideStudent.class] ?? 2500;
     const isDefault =
       Number(localOverride.monthlyFee) === base &&
       Number(localOverride.concessionPct) === 0 &&
-      Number(localOverride.lumpSumDiscountPct) === feeConfig.lumpSumDiscountPct &&
-      Number(localOverride.termDiscountPct) === feeConfig.termDiscountPct &&
+      Number(localOverride.lumpSumDiscountPct) === 5 &&
+      Number(localOverride.termDiscountPct) === 2 &&
       !localOverride.concessionReason && !localOverride.feeNote;
     if (isDefault) {
       delete updated[overrideStudent.id];
@@ -2944,7 +3252,7 @@ function SettingsPage({ role }) {
                   <div key={cls} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderBottom: `1px solid ${palette.border}` }}>
                     <span style={{ fontWeight: 800 }}>{cls}</span>
                     <span style={{ fontSize: 12, color: palette.muted }}>{STUDENTS.filter(s => s.class === cls).length} students</span>
-                    <span style={{ fontWeight: 700, color: palette.green }}>Rs.{feeConfig.classMonthlyFee[cls].toLocaleString()}/mo</span>
+                    <span style={{ fontWeight: 700, color: palette.green }}>₹{((feeConfig.years?.[feeConfig.activeYear]?.feeStructure?.[cls]?.monthly) ?? feeConfig.classMonthlyFee?.[cls] ?? 0).toLocaleString()}/mo</span>
                     <span className="class-pill" style={{ background: cc.bg, color: cc.accent }}>Active</span>
                   </div>
                 );
@@ -2955,150 +3263,7 @@ function SettingsPage({ role }) {
       )}
 
       {settingsTab === "fees" && (
-        <div>
-          {saved && (
-            <div style={{ padding: "12px 16px", background: "#E8F5E9", borderRadius: 12, marginBottom: 16, fontWeight: 700, color: "#388E3C" }}>
-              Fee configuration saved successfully!
-            </div>
-          )}
-          <div style={{ padding: "16px 20px", background: "linear-gradient(135deg, #1A2340, #2D4A8C)", borderRadius: 16, marginBottom: 20, color: "white", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div>
-              <div style={{ fontSize: 11, opacity: 0.7, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }}>Academic Year</div>
-              <div style={{ fontSize: 22, fontWeight: 900, fontFamily: "Fredoka One, cursive" }}>{localCfg.yearLabel}</div>
-            </div>
-            <div style={{ fontSize: 32 }}>📅</div>
-          </div>
-
-          <div className="grid-2" style={{ marginBottom: 20 }}>
-            <div className="card">
-              <div className="card-header">
-                <div className="card-title">Monthly Fee by Class</div>
-                <div style={{ fontSize: 11, color: palette.muted }}>School-wide defaults</div>
-              </div>
-              <div className="card-body">
-                <div style={{ fontSize: 12, color: "#E65100", marginBottom: 14, padding: "10px 12px", background: "#FFF8E1", borderRadius: 10, fontWeight: 600 }}>
-                  These are school-wide defaults. Individual students can have different rates in the Student Overrides tab.
-                </div>
-                {CLASSES.map(cls => {
-                  const cc = classColors[cls];
-                  return (
-                    <div key={cls} style={{ marginBottom: 16 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-                        <span className="class-pill" style={{ background: cc.bg, color: cc.accent }}>{cls}</span>
-                        <span style={{ fontSize: 11, color: palette.muted }}>{STUDENTS.filter(s => s.class === cls).length} students</span>
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontSize: 13, fontWeight: 700 }}>Rs.</span>
-                        <input className="input" type="number" value={localClassFee[cls]} disabled={!canEdit}
-                          onChange={e => setLocalClassFee(p => ({ ...p, [cls]: Number(e.target.value) }))}
-                          style={{ maxWidth: 120 }} />
-                        <span style={{ fontSize: 12, color: palette.muted }}>per month → Rs.{(localClassFee[cls] * 10).toLocaleString()} full year</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div>
-              <div className="card" style={{ marginBottom: 16 }}>
-                <div className="card-header"><div className="card-title">Payment Mode Discounts</div></div>
-                <div className="card-body">
-                  <div className="form-group">
-                    <label className="form-label">Term Payment Discount (%)</label>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <input className="input" type="number" min="0" max="20" value={localCfg.termDiscountPct}
-                        disabled={!canEdit}
-                        onChange={e => setLocalCfg(p => ({ ...p, termDiscountPct: Number(e.target.value) }))}
-                        style={{ maxWidth: 80 }} />
-                      <span style={{ fontSize: 12, color: palette.muted }}>% off when paying per term</span>
-                    </div>
-                    <div style={{ fontSize: 11, color: palette.muted, marginTop: 4 }}>
-                      UKG Term 1 example: Rs.{Math.round(localClassFee.UKG * 3 * (1 - localCfg.termDiscountPct / 100)).toLocaleString()} instead of Rs.{(localClassFee.UKG * 3).toLocaleString()}
-                    </div>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Lump-Sum Full Year Discount (%)</label>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <input className="input" type="number" min="0" max="30" value={localCfg.lumpSumDiscountPct}
-                        disabled={!canEdit}
-                        onChange={e => setLocalCfg(p => ({ ...p, lumpSumDiscountPct: Number(e.target.value) }))}
-                        style={{ maxWidth: 80 }} />
-                      <span style={{ fontSize: 12, color: palette.muted }}>% off full year upfront</span>
-                    </div>
-                    <div style={{ fontSize: 11, color: palette.muted, marginTop: 4 }}>
-                      UKG full year example: Rs.{Math.round(localClassFee.UKG * 10 * (1 - localCfg.lumpSumDiscountPct / 100)).toLocaleString()} instead of Rs.{(localClassFee.UKG * 10).toLocaleString()}
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className="card">
-                <div className="card-header"><div className="card-title">Other Fees and Fines</div></div>
-                <div className="card-body">
-                  <div className="form-group">
-                    <label className="form-label">Registration / Admission Fee (Rs.)</label>
-                    <input className="input" type="number" value={localCfg.registrationFee} disabled={!canEdit}
-                      onChange={e => setLocalCfg(p => ({ ...p, registrationFee: Number(e.target.value) }))}
-                      style={{ maxWidth: 160 }} />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Late Fine Per Month (Rs.)</label>
-                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                      <input className="input" type="number" value={localCfg.lateFinePerMonth} disabled={!canEdit}
-                        onChange={e => setLocalCfg(p => ({ ...p, lateFinePerMonth: Number(e.target.value) }))}
-                        style={{ maxWidth: 120 }} />
-                      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-                        <input type="checkbox" checked={localCfg.autoApplyLateFine} disabled={!canEdit}
-                          onChange={e => setLocalCfg(p => ({ ...p, autoApplyLateFine: e.target.checked }))} />
-                        Auto-apply
-                      </label>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="card" style={{ marginBottom: 20 }}>
-            <div className="card-header"><div className="card-title">Fee Summary Preview - All Classes and Modes</div></div>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Class</th><th>Monthly</th><th>Term 1-3 (3mo)</th><th>Term 4 (1mo)</th><th>Full Year Lump Sum</th><th>Savings</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {CLASSES.map(cls => {
-                    const monthly = localClassFee[cls];
-                    const termAmt = Math.round(monthly * 3 * (1 - localCfg.termDiscountPct / 100));
-                    const term4Amt = Math.round(monthly * (1 - localCfg.termDiscountPct / 100));
-                    const lumpAmt = Math.round(monthly * 10 * (1 - localCfg.lumpSumDiscountPct / 100));
-                    const saving = monthly * 10 - lumpAmt;
-                    const cc = classColors[cls];
-                    return (
-                      <tr key={cls}>
-                        <td><span className="class-pill" style={{ background: cc.bg, color: cc.accent }}>{cls}</span></td>
-                        <td style={{ fontWeight: 800 }}>Rs.{monthly.toLocaleString()}</td>
-                        <td>Rs.{termAmt.toLocaleString()} <span style={{ fontSize: 10, color: palette.muted }}>({localCfg.termDiscountPct}% off)</span></td>
-                        <td>Rs.{term4Amt.toLocaleString()}</td>
-                        <td style={{ fontWeight: 800, color: palette.green }}>Rs.{lumpAmt.toLocaleString()} <span style={{ fontSize: 10, color: palette.muted }}>({localCfg.lumpSumDiscountPct}% off)</span></td>
-                        <td style={{ fontWeight: 700, color: palette.coral }}>Rs.{saving.toLocaleString()}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {canEdit && (
-            <div style={{ display: "flex", gap: 12 }}>
-              <button className="btn btn-primary" onClick={saveConfig}>Save Fee Configuration</button>
-              <button className="btn btn-ghost" onClick={() => { setLocalCfg({ ...feeConfig }); setLocalClassFee({ ...feeConfig.classMonthlyFee }); }}>Reset</button>
-            </div>
-          )}
-        </div>
+        <FeeConfigPanel feeConfig={feeConfig} setFeeConfig={setFeeConfig} canEdit={canEdit} STUDENTS={STUDENTS} />
       )}
 
       {settingsTab === "overrides" && (
@@ -3118,7 +3283,7 @@ function SettingsPage({ role }) {
                 </thead>
                 <tbody>
                   {STUDENTS.map(s => {
-                    const defaultRate = feeConfig.classMonthlyFee[s.class];
+                    const defaultRate = (feeConfig.years?.[feeConfig.activeYear]?.feeStructure?.[s.class]?.monthly) ?? feeConfig.classMonthlyFee?.[s.class] ?? 2500;
                     const effectiveRate = effectiveMonthlyFee(s, feeConfig, studentOverrides);
                     const ov = studentOverrides[s.id];
                     const hasOverride = !!ov;
@@ -3199,7 +3364,7 @@ function SettingsPage({ role }) {
             <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
               <div style={{ flex: 1, padding: 12, background: palette.offwhite, borderRadius: 10, textAlign: "center" }}>
                 <div style={{ fontSize: 11, color: palette.muted, fontWeight: 700 }}>SCHOOL DEFAULT</div>
-                <div style={{ fontSize: 20, fontWeight: 900, color: palette.muted }}>Rs.{feeConfig.classMonthlyFee[overrideStudent.class].toLocaleString()}/mo</div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: palette.muted }}>₹{((feeConfig.years?.[feeConfig.activeYear]?.feeStructure?.[overrideStudent.class]?.monthly) ?? feeConfig.classMonthlyFee?.[overrideStudent.class] ?? 0).toLocaleString()}/mo</div>
               </div>
               <div style={{ display: "flex", alignItems: "center", color: palette.muted, fontSize: 20 }}>to</div>
               <div style={{ flex: 1, padding: 12, background: "#E8F5E9", borderRadius: 10, textAlign: "center" }}>
@@ -3214,7 +3379,7 @@ function SettingsPage({ role }) {
                 <label className="form-label">Base Monthly Fee (Rs.)</label>
                 <input className="input" type="number" value={localOverride.monthlyFee}
                   onChange={e => setLocalOverride(p => ({ ...p, monthlyFee: e.target.value }))} />
-                <div style={{ fontSize: 11, color: palette.muted, marginTop: 4 }}>Class default: Rs.{feeConfig.classMonthlyFee[overrideStudent.class]}</div>
+                <div style={{ fontSize: 11, color: palette.muted, marginTop: 4 }}>Class default: ₹{((feeConfig.years?.[feeConfig.activeYear]?.feeStructure?.[overrideStudent.class]?.monthly) ?? feeConfig.classMonthlyFee?.[overrideStudent.class] ?? 0).toLocaleString()}</div>
               </div>
               <div className="form-group">
                 <label className="form-label">Concession (%)</label>
@@ -3233,13 +3398,13 @@ function SettingsPage({ role }) {
                 <label className="form-label">Term Discount (%) override</label>
                 <input className="input" type="number" min="0" max="30" value={localOverride.termDiscountPct}
                   onChange={e => setLocalOverride(p => ({ ...p, termDiscountPct: e.target.value }))} />
-                <div style={{ fontSize: 11, color: palette.muted, marginTop: 4 }}>School default: {feeConfig.termDiscountPct}%</div>
+                <div style={{ fontSize: 11, color: palette.muted, marginTop: 4 }}>School default: 2%</div>
               </div>
               <div className="form-group">
                 <label className="form-label">Lump-Sum Discount (%) override</label>
                 <input className="input" type="number" min="0" max="50" value={localOverride.lumpSumDiscountPct}
                   onChange={e => setLocalOverride(p => ({ ...p, lumpSumDiscountPct: e.target.value }))} />
-                <div style={{ fontSize: 11, color: palette.muted, marginTop: 4 }}>School default: {feeConfig.lumpSumDiscountPct}%</div>
+                <div style={{ fontSize: 11, color: palette.muted, marginTop: 4 }}>School default: 5%</div>
               </div>
             </div>
             <div className="form-group">
