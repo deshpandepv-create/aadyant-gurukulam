@@ -3350,9 +3350,6 @@ function AppInner() {
   const displayName = currentUser?.name || roleNames[role];
   const displayAvatar = roleAvatars[role];
 
-  const navItems = NAV[role] || NAV.admin;
-  const rc = roleColors[role];
-
   return (
     <>
       <style>{CSS}</style>
