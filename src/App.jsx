@@ -73,12 +73,12 @@ const MONTHLY_FEE = 2500; // legacy fallback
 
 // ── FEE CONFIGURATION ───────────────────────────────────────────────────────
 // feeStructure: per-class fees for each payment mode
-// modes: monthly | term1 (first half: Jun-Nov) | term2 (second half: Dec-Mar) | fullYear
+// modes: monthly | term1 (first half: Jun-Oct) | term2 (second half: Nov-Mar) | fullYear
 const DEFAULT_FEE_STRUCTURE = {
-  Playgroup: { monthly: 2000, term1: 11000, term2: 7000, fullYear: 17000 },
-  Nursery:   { monthly: 2200, term1: 12000, term2: 7700, fullYear: 18700 },
-  LKG:       { monthly: 2500, term1: 13500, term2: 8750, fullYear: 21500 },
-  UKG:       { monthly: 2500, term1: 13500, term2: 8750, fullYear: 21500 },
+  Playgroup: { monthly: 2000, term1: 10000, term2: 10000, fullYear: 17000 },
+  Nursery:   { monthly: 2200, term1: 11000, term2: 11000, fullYear: 18700 },
+  LKG:       { monthly: 2500, term1: 12500, term2: 12500, fullYear: 21500 },
+  UKG:       { monthly: 2500, term1: 12500, term2: 12500, fullYear: 21500 },
 };
 
 const DEFAULT_FEE_CONFIG = {
@@ -405,6 +405,63 @@ function AppDataProvider({ children }) {
     setUsers(prev => prev.filter(u => u.id !== id));
   };
 
+
+  // Update student payment plan (mode + year)
+  const updateStudentPlan = (studentId, year, mode, feeConfigData) => {
+    setStudents(prev => prev.map(s => {
+      if (s.id !== studentId) return s;
+      const yearData = feeConfigData?.years?.[year];
+      const feeStructure = yearData?.feeStructure || {};
+      const cls = s.class;
+      const fees = feeStructure[cls] || { monthly: 2000, term1: 10000, term2: 10000, fullYear: 17000 };
+      // Build month keys for this year
+      const yearStart = parseInt(year.split('-')[0]);
+      const MONTH_NAMES = ["Jun","Jul","Aug","Sep","Oct","Nov","Dec","Jan","Feb","Mar"];
+      const mkYear = (mo) => ["Jan","Feb","Mar"].includes(mo) ? yearStart+1 : yearStart;
+      const allMonthKeys = MONTH_NAMES.map(m => `${m}-${mkYear(m)}`);
+      
+      let newPayments = {};
+      if (mode === "monthly") {
+        allMonthKeys.forEach(mk => {
+          const existing = s.payments[mk];
+          newPayments[mk] = existing && existing.status === "paid"
+            ? existing
+            : { amount: fees.monthly, status: existing?.status === "overdue" ? "overdue" : "pending", date: null, txnId: null };
+        });
+      } else if (mode === "term1") {
+        // Jun-Oct paid as one block, Nov-Mar paid as one block
+        const t1Keys = allMonthKeys.slice(0, 5);  // Jun–Oct
+        const t2Keys = allMonthKeys.slice(5);      // Nov–Mar
+        t1Keys.forEach((mk, i) => {
+          const existing = s.payments[mk];
+          if (i === 0) newPayments[mk] = existing && existing.status === "paid" ? existing : { amount: fees.term1, status: "pending", date: null, txnId: null, installmentLabel: "Term 1 (Jun–Oct)" };
+          else newPayments[mk] = existing && existing.status === "paid" ? existing : { amount: 0, status: "covered", coveredBy: t1Keys[0] };
+        });
+        t2Keys.forEach((mk, i) => {
+          const existing = s.payments[mk];
+          if (i === 0) newPayments[mk] = existing && existing.status === "paid" ? existing : { amount: fees.term2, status: "pending", date: null, txnId: null, installmentLabel: "Term 2 (Nov–Mar)" };
+          else newPayments[mk] = existing && existing.status === "paid" ? existing : { amount: 0, status: "covered", coveredBy: t2Keys[0] };
+        });
+      } else if (mode === "fullYear") {
+        allMonthKeys.forEach((mk, i) => {
+          const existing = s.payments[mk];
+          if (i === 0) newPayments[mk] = existing && existing.status === "paid" ? existing : { amount: fees.fullYear, status: "pending", date: null, txnId: null, installmentLabel: `Full Year ${year}` };
+          else newPayments[mk] = existing && existing.status === "paid" ? existing : { amount: 0, status: "covered", coveredBy: allMonthKeys[0] };
+        });
+      }
+      
+      // Store plan per year
+      const yearPlans = s.yearPlans || {};
+      return {
+        ...s,
+        paymentMode: mode === "term1" || mode === "term2" ? "termly" : mode === "fullYear" ? "lump-sum" : "monthly",
+        yearPlans: { ...yearPlans, [year]: { mode, setOn: new Date().toISOString().slice(0,10) } },
+        enrolledMonths: allMonthKeys,
+        payments: newPayments,
+      };
+    }));
+  };
+
   // Add student
   const addStudent = (formData) => {
     const nextId = students.length > 0 ? Math.max(...students.map(s => s.id)) + 1 : 1;
@@ -467,7 +524,7 @@ function AppDataProvider({ children }) {
       students, marks, syllabus, exams, announcements, feeConfig, studentOverrides, users,
       setStudents, setMarks, setSyllabus, setExams, setAnnouncements, setFeeConfig, setStudentOverrides, setUsers,
       addStudent, recordPayment, toggleSyllabusTopic, saveMarks, addExam, deleteExam, addAnnouncement, deleteAnnouncement, resetAllData,
-      addUser, updateUser, deleteUser
+      addUser, updateUser, deleteUser, updateStudentPlan
     }}>
       {children}
     </AppDataContext.Provider>
@@ -1366,12 +1423,14 @@ function StudentsPage({ role }) {
 
 // ---- FEES ----
 function FeesPage({ role }) {
-  const { students: STUDENTS, feeConfig, studentOverrides, setFeeConfig, setStudentOverrides, recordPayment } = useAppData();
+  const { students: STUDENTS, feeConfig, studentOverrides, setFeeConfig, setStudentOverrides, recordPayment, updateStudentPlan } = useAppData();
   const [activeTab, setActiveTab] = useState("overview");
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [showRecord, setShowRecord] = useState(false);
   const [recordMonth, setRecordMonth] = useState(null);
   const [showEnrollModal, setShowEnrollModal] = useState(false);
+  const [showPlanModal, setShowPlanModal] = useState(false);
+  const [planStudent, setPlanStudent] = useState(null);
   const canManage = role === "admin" || role === "principal";
   const currentStudent = selectedStudent ? STUDENTS.find(s => s.id === selectedStudent.id) || STUDENTS[0] : STUDENTS[0];
 
@@ -1506,9 +1565,14 @@ function FeesPage({ role }) {
                         <td><span className={`fee-badge fee-${fs}`}>{fs === "paid" ? "✓ " : fs === "overdue" ? "⚠ " : "○ "}{fs}</span></td>
                         {canManage && (
                           <td>
-                            <button className="btn btn-ghost btn-sm" onClick={e => { e.stopPropagation(); setSelectedStudent(s); setShowRecord(true); }}>
-                              + Record
-                            </button>
+                            <div style={{ display: "flex", gap: 6 }}>
+                              <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "4px 8px" }} onClick={e => { e.stopPropagation(); setPlanStudent(s); setShowPlanModal(true); }}>
+                                📋
+                              </button>
+                              <button className="btn btn-ghost btn-sm" onClick={e => { e.stopPropagation(); setSelectedStudent(s); setShowRecord(true); }}>
+                                + Record
+                              </button>
+                            </div>
                           </td>
                         )}
                       </tr>
@@ -1620,8 +1684,23 @@ function FeesPage({ role }) {
                     {PAYMENT_MODE_LABELS[currentStudent.paymentMode].icon} {PAYMENT_MODE_LABELS[currentStudent.paymentMode].label} ·
                     {currentStudent.enrolledMonths.length} months enrolled
                   </div>
+                  {/* Year plan badges */}
+                  {currentStudent.yearPlans && Object.keys(currentStudent.yearPlans).length > 0 && (
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+                      {Object.entries(currentStudent.yearPlans).map(([yr, plan]) => (
+                        <span key={yr} style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 10,
+                          background: yr === feeConfig.activeYear ? "#E8F5E9" : "#F5F5F5",
+                          color: yr === feeConfig.activeYear ? "#2E7D32" : palette.muted }}>
+                          {yr}: {["monthly","term1","fullYear"].includes(plan.mode) ? {monthly:"Monthly",term1:"Half-Yearly",fullYear:"Full Year"}[plan.mode] : plan.mode}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                {canManage && <button className="btn btn-primary btn-sm" onClick={() => setShowRecord(true)}>+ Record</button>}
+                {canManage && <div style={{ display: "flex", gap: 8 }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => { setPlanStudent(currentStudent); setShowPlanModal(true); }}>📋 Set Plan</button>
+                  <button className="btn btn-primary btn-sm" onClick={() => setShowRecord(true)}>+ Record</button>
+                </div>}
               </div>
               <div className="card-body">
                 {/* Summary bar */}
@@ -1820,6 +1899,141 @@ function FeesPage({ role }) {
           </div>
         </div>
       )}
+
+      {/* ── PAYMENT PLAN MODAL ── */}
+      {showPlanModal && planStudent && canManage && (() => {
+        const years = Object.keys(feeConfig.years || { "2024-25": {} });
+        const [selYear, setSelYear] = [
+          planStudent._planYear || feeConfig.activeYear,
+          (y) => setPlanStudent(p => ({ ...p, _planYear: y }))
+        ];
+        const activeSelYear = planStudent._planYear || feeConfig.activeYear;
+        const yearData = feeConfig.years?.[activeSelYear] || {};
+        const fees = yearData.feeStructure?.[planStudent.class] || { monthly: 2000, term1: 10000, term2: 10000, fullYear: 17000 };
+        const existingPlan = planStudent.yearPlans?.[activeSelYear]?.mode || planStudent.paymentMode || "monthly";
+        const [selMode, setSelMode] = [
+          planStudent._planMode ?? existingPlan,
+          (m) => setPlanStudent(p => ({ ...p, _planMode: m }))
+        ];
+        const activeMode = planStudent._planMode ?? existingPlan;
+
+        const PLAN_OPTIONS = [
+          { key: "monthly",  icon: "📅", label: "Monthly",    desc: "Pay every month separately", amount: fees.monthly, note: "×10 months" },
+          { key: "term1",    icon: "📗", label: "Half-Yearly", desc: "Jun–Oct then Nov–Mar (2 payments)", amount: null, note: `₹${fees.term1.toLocaleString()} + ₹${fees.term2.toLocaleString()}` },
+          { key: "fullYear", icon: "🎯", label: "Full Year",   desc: "Single upfront payment", amount: fees.fullYear, note: "Best value" },
+        ];
+
+        return (
+          <div className="modal-overlay" onClick={() => { setShowPlanModal(false); setPlanStudent(null); }}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+              <div className="modal-header">
+                <div>
+                  <div className="modal-title">📋 Set Payment Plan</div>
+                  <div style={{ fontSize: 12, color: palette.muted, marginTop: 2 }}>{planStudent.photo} {planStudent.name} · {planStudent.class}</div>
+                </div>
+                <button className="close-btn" onClick={() => { setShowPlanModal(false); setPlanStudent(null); }}>✕</button>
+              </div>
+
+              {/* Academic Year Selector */}
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: palette.navy, marginBottom: 10, textTransform: "uppercase", letterSpacing: 1 }}>Academic Year</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {years.map(yk => {
+                    const yd = feeConfig.years[yk];
+                    const hasPlan = planStudent.yearPlans?.[yk];
+                    return (
+                      <button key={yk} onClick={() => setSelYear(yk)}
+                        style={{ padding: "8px 16px", borderRadius: 20, border: `2px solid ${activeSelYear === yk ? palette.navy : palette.border}`,
+                          background: activeSelYear === yk ? palette.navy : "white",
+                          color: activeSelYear === yk ? "white" : palette.navy,
+                          fontWeight: 700, fontSize: 13, cursor: "pointer", position: "relative" }}>
+                        {yk}
+                        {hasPlan && <span style={{ marginLeft: 6, fontSize: 10, opacity: 0.8 }}>✓</span>}
+                        {yk === feeConfig.activeYear && activeSelYear !== yk && (
+                          <span style={{ position: "absolute", top: -6, right: -6, fontSize: 9, background: palette.coral, color: "white", borderRadius: 6, padding: "1px 5px", fontWeight: 800 }}>ACTIVE</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                {yearData.label && (
+                  <div style={{ fontSize: 12, color: palette.muted, marginTop: 8 }}>📅 {yearData.label}</div>
+                )}
+              </div>
+
+              {/* Current Plan Badge */}
+              {planStudent.yearPlans?.[activeSelYear] && (
+                <div style={{ padding: "8px 14px", borderRadius: 10, background: "#E8F5E9", marginBottom: 16, fontSize: 12, fontWeight: 700, color: "#2E7D32" }}>
+                  ✅ Current plan for {activeSelYear}: <strong>{PLAN_OPTIONS.find(p => p.key === planStudent.yearPlans[activeSelYear].mode)?.label || planStudent.yearPlans[activeSelYear].mode}</strong>
+                  {" "}· Set on {planStudent.yearPlans[activeSelYear].setOn}
+                </div>
+              )}
+
+              {/* Payment Mode Cards */}
+              <div style={{ fontSize: 12, fontWeight: 800, color: palette.navy, marginBottom: 10, textTransform: "uppercase", letterSpacing: 1 }}>Payment Mode</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+                {PLAN_OPTIONS.map(opt => {
+                  const selected = activeMode === opt.key;
+                  return (
+                    <div key={opt.key} onClick={() => setSelMode(opt.key)}
+                      style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 18px", borderRadius: 14,
+                        border: `2px solid ${selected ? palette.navy : palette.border}`,
+                        background: selected ? "#EEF1F8" : "white", cursor: "pointer",
+                        transition: "all 0.15s" }}>
+                      <div style={{ fontSize: 28 }}>{opt.icon}</div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 800, fontSize: 14, color: palette.navy }}>{opt.label}</div>
+                        <div style={{ fontSize: 12, color: palette.muted }}>{opt.desc}</div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontWeight: 900, fontSize: 16, color: selected ? palette.navy : palette.muted }}>
+                          {opt.amount != null ? `₹${opt.amount.toLocaleString()}` : "2 parts"}
+                        </div>
+                        <div style={{ fontSize: 11, color: palette.muted }}>{opt.note}</div>
+                      </div>
+                      <div style={{ width: 20, height: 20, borderRadius: "50%", border: `2px solid ${selected ? palette.navy : palette.border}`,
+                        background: selected ? palette.navy : "white", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        {selected && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "white" }} />}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Fee summary for selected mode */}
+              <div style={{ padding: "12px 16px", borderRadius: 12, background: palette.offwhite, marginBottom: 20, fontSize: 13 }}>
+                <div style={{ fontWeight: 800, color: palette.navy, marginBottom: 6 }}>Fee Summary · {planStudent.class} · {activeSelYear}</div>
+                {activeMode === "monthly" && (
+                  <div>Monthly: <strong>₹{fees.monthly.toLocaleString()}</strong> × 10 months = <strong style={{ color: palette.navy }}>₹{(fees.monthly * 10).toLocaleString()}</strong> total</div>
+                )}
+                {activeMode === "term1" && (
+                  <div>
+                    <div>Term 1 (Jun–Oct): <strong>₹{fees.term1.toLocaleString()}</strong></div>
+                    <div>Term 2 (Nov–Mar): <strong>₹{fees.term2.toLocaleString()}</strong></div>
+                    <div style={{ marginTop: 4 }}>Total: <strong style={{ color: palette.navy }}>₹{(fees.term1 + fees.term2).toLocaleString()}</strong></div>
+                  </div>
+                )}
+                {activeMode === "fullYear" && (
+                  <div>Full Year: <strong style={{ color: palette.green }}>₹{fees.fullYear.toLocaleString()}</strong>
+                    <span style={{ fontSize: 11, color: palette.muted, marginLeft: 8 }}>
+                      (saves ₹{((fees.monthly * 10) - fees.fullYear).toLocaleString()} vs monthly)
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button className="btn btn-ghost" onClick={() => { setShowPlanModal(false); setPlanStudent(null); }}>Cancel</button>
+                <button className="btn btn-primary" onClick={() => {
+                  updateStudentPlan(planStudent.id, activeSelYear, activeMode, feeConfig);
+                  alert(`✅ Payment plan set for ${planStudent.name}:\n${activeSelYear} → ${PLAN_OPTIONS.find(p => p.key === activeMode)?.label}`);
+                  setShowPlanModal(false); setPlanStudent(null);
+                }}>✅ Save Plan</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -2867,7 +3081,7 @@ function FeeConfigPanel({ feeConfig, setFeeConfig, canEdit, STUDENTS }) {
           autoApplyLateFine: cfg.autoApplyLateFine !== false,
           feeStructure: CLASSES.reduce((acc, cls) => {
             const m = cfg.classMonthlyFee?.[cls] || 2000;
-            acc[cls] = { monthly: m, term1: Math.round(m * 6), term2: Math.round(m * 4), fullYear: Math.round(m * 10) };
+            acc[cls] = { monthly: m, term1: Math.round(m * 5), term2: Math.round(m * 5), fullYear: Math.round(m * 10) };
             return acc;
           }, {}),
         }
@@ -2948,8 +3162,8 @@ function FeeConfigPanel({ feeConfig, setFeeConfig, canEdit, STUDENTS }) {
 
   const modeInfo = [
     { key: "monthly",  label: "Monthly",       icon: "📅", color: "#42A5F5", desc: "Per month fee" },
-    { key: "term1",    label: "Term 1",         icon: "📗", color: "#66BB6A", desc: "Jun – Nov (first half)" },
-    { key: "term2",    label: "Term 2",         icon: "📘", color: "#AB47BC", desc: "Dec – Mar (second half)" },
+    { key: "term1",    label: "Term 1",         icon: "📗", color: "#66BB6A", desc: "Jun – Oct (first half)" },
+    { key: "term2",    label: "Term 2",         icon: "📘", color: "#AB47BC", desc: "Nov – Mar (second half)" },
     { key: "fullYear", label: "Full Year",      icon: "🎯", color: "#FF8A65", desc: "Entire year upfront" },
   ];
 
@@ -3037,7 +3251,7 @@ function FeeConfigPanel({ feeConfig, setFeeConfig, canEdit, STUDENTS }) {
           {/* Per-class rows */}
           {CLASSES.map(cls => {
             const cc = classColors[cls];
-            const fees = feeStructure[cls] || { monthly: 2000, term1: 11000, term2: 7000, fullYear: 17000 };
+            const fees = feeStructure[cls] || { monthly: 2000, term1: 10000, term2: 10000, fullYear: 17000 };
             const studentCount = STUDENTS.filter(s => s.class === cls).length;
             return (
               <div key={cls} style={{ padding: "16px 20px", borderBottom: `1px solid ${palette.border}` }}>
