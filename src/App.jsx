@@ -421,6 +421,14 @@ function AppDataProvider({ children }) {
     setMarks(prev => ({ ...prev, [studentId]: { ...(prev[studentId] || {}), ...newMarks } }));
   };
 
+  // Add announcement
+  const addAnnouncement = (ann) => {
+    const nextId = announcements.length > 0 ? Math.max(...announcements.map(a => a.id)) + 1 : 1;
+    setAnnouncements(prev => [{ ...ann, id: nextId }, ...prev]);
+  };
+  const deleteAnnouncement = (id) => setAnnouncements(prev => prev.filter(a => a.id !== id));
+  const deleteExam = (id) => setExams(prev => prev.filter(e => e.id !== id));
+
   // Add exam
   const addExam = (exam) => {
     const nextId = exams.length > 0 ? Math.max(...exams.map(e => e.id)) + 1 : 1;
@@ -438,7 +446,7 @@ function AppDataProvider({ children }) {
     <AppDataContext.Provider value={{
       students, marks, syllabus, exams, announcements, feeConfig, studentOverrides, users,
       setStudents, setMarks, setSyllabus, setExams, setAnnouncements, setFeeConfig, setStudentOverrides, setUsers,
-      addStudent, recordPayment, toggleSyllabusTopic, saveMarks, addExam, resetAllData,
+      addStudent, recordPayment, toggleSyllabusTopic, saveMarks, addExam, deleteExam, addAnnouncement, deleteAnnouncement, resetAllData,
       addUser, updateUser, deleteUser
     }}>
       {children}
@@ -2276,6 +2284,261 @@ function AnalyticsPage({ role }) {
 }
 
 // ---- SETTINGS ----
+// ---- ANNOUNCEMENTS PANEL ----
+function AnnouncementsPanel({ announcements, addAnnouncement, deleteAnnouncement, role }) {
+  const CATEGORIES = [
+    { value: "event",   label: "Event",   icon: "🎉", color: palette.sky },
+    { value: "meeting", label: "Meeting", icon: "🤝", color: palette.lavender },
+    { value: "holiday", label: "Holiday", icon: "🏖️", color: palette.coral },
+    { value: "notice",  label: "Notice",  icon: "📌", color: palette.sun },
+  ];
+  const EMPTY = { title: "", content: "", category: "event", date: new Date().toISOString().slice(0, 10) };
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState(EMPTY);
+  const [confirmDel, setConfirmDel] = useState(null);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState("");
+
+  function handleSave() {
+    if (!form.title.trim() || !form.content.trim()) { setErr("Title and content are required."); return; }
+    addAnnouncement({ title: form.title.trim(), content: form.content.trim(), category: form.category, date: form.date });
+    setSaved(true); setTimeout(() => setSaved(false), 2000);
+    setShowAdd(false); setForm(EMPTY); setErr("");
+  }
+
+  const catMeta = (cat) => CATEGORIES.find(c => c.value === cat) || CATEGORIES[0];
+
+  return (
+    <div>
+      {saved && <div style={{ padding: "12px 16px", background: "#E8F5E9", borderRadius: 12, marginBottom: 16, fontWeight: 700, color: "#388E3C" }}>✅ Announcement posted!</div>}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <div style={{ fontSize: 13, color: palette.muted, fontWeight: 600 }}>{announcements.length} announcement{announcements.length !== 1 ? "s" : ""} total</div>
+        <button className="btn btn-primary" onClick={() => { setForm(EMPTY); setErr(""); setShowAdd(true); }}>+ New Announcement</button>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {announcements.length === 0 && (
+          <div style={{ textAlign: "center", padding: 48, color: palette.muted, fontWeight: 700 }}>No announcements yet. Add one above.</div>
+        )}
+        {announcements.map(a => {
+          const meta = catMeta(a.category);
+          return (
+            <div key={a.id} className="card" style={{ borderLeft: `5px solid ${meta.color}` }}>
+              <div className="card-body" style={{ paddingTop: 16, paddingBottom: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <span style={{ padding: "2px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, background: `${meta.color}22`, color: meta.color }}>{meta.icon} {meta.label}</span>
+                      <span style={{ fontSize: 12, color: palette.muted, fontWeight: 600 }}>{a.date}</span>
+                    </div>
+                    <div style={{ fontWeight: 800, fontSize: 15, color: palette.navy, marginBottom: 4 }}>{a.title}</div>
+                    <div style={{ fontSize: 13, color: palette.muted, lineHeight: 1.5 }}>{a.content}</div>
+                  </div>
+                  <button className="btn btn-danger btn-sm" onClick={() => setConfirmDel(a)}>🗑</button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {showAdd && (
+        <div className="modal-overlay" onClick={() => setShowAdd(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ width: 520 }}>
+            <div className="modal-header">
+              <div className="modal-title">📢 New Announcement</div>
+              <button className="close-btn" onClick={() => setShowAdd(false)}>✕</button>
+            </div>
+            {err && <div style={{ background: "#FFEBEE", color: "#C62828", borderRadius: 10, padding: "10px 14px", fontSize: 13, fontWeight: 700, marginBottom: 16 }}>⚠️ {err}</div>}
+            <div className="form-group">
+              <label className="form-label">Category</label>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {CATEGORIES.map(c => (
+                  <button key={c.value} onClick={() => setForm(p => ({ ...p, category: c.value }))}
+                    style={{ padding: "7px 14px", borderRadius: 20, border: `2px solid ${form.category === c.value ? c.color : palette.border}`,
+                      background: form.category === c.value ? `${c.color}22` : "white", cursor: "pointer",
+                      fontSize: 12, fontWeight: 700, color: form.category === c.value ? c.color : palette.muted, fontFamily: "'Nunito', sans-serif" }}>
+                    {c.icon} {c.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group" style={{ gridColumn: "1 / -1" }}>
+                <label className="form-label">Title *</label>
+                <input className="input" placeholder="e.g. Annual Sports Day" value={form.title}
+                  onChange={e => { setForm(p => ({ ...p, title: e.target.value })); setErr(""); }} />
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Date</label>
+                <input className="input" type="date" value={form.date}
+                  onChange={e => setForm(p => ({ ...p, date: e.target.value }))} />
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Content *</label>
+              <textarea className="input" rows={4} placeholder="Write announcement details here…" value={form.content}
+                onChange={e => { setForm(p => ({ ...p, content: e.target.value })); setErr(""); }}
+                style={{ resize: "vertical", lineHeight: 1.5 }} />
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button className="btn btn-ghost" onClick={() => setShowAdd(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleSave}>Post Announcement</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmDel && (
+        <div className="modal-overlay" onClick={() => setConfirmDel(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ width: 400, textAlign: "center" }}>
+            <div style={{ fontSize: 44, marginBottom: 12 }}>🗑️</div>
+            <div className="modal-title" style={{ marginBottom: 8 }}>Delete Announcement?</div>
+            <div style={{ fontSize: 13, color: palette.muted, marginBottom: 24 }}>
+              "<strong>{confirmDel.title}</strong>" will be permanently removed.
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+              <button className="btn btn-ghost" onClick={() => setConfirmDel(null)}>Cancel</button>
+              <button className="btn btn-danger" onClick={() => { deleteAnnouncement(confirmDel.id); setConfirmDel(null); }}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- EXAM SCHEDULE PANEL ----
+function ExamSchedulePanel({ exams, addExam, deleteExam, role }) {
+  const EMPTY = { name: "", class: "All", date: "", time: "09:00", subject: "All Subjects" };
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState(EMPTY);
+  const [confirmDel, setConfirmDel] = useState(null);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState("");
+
+  function handleSave() {
+    if (!form.name.trim()) { setErr("Exam name is required."); return; }
+    if (!form.date) { setErr("Please select a date."); return; }
+    addExam({ name: form.name.trim(), class: form.class, date: form.date, time: form.time || "9:00 AM", subject: form.subject || "All Subjects", status: "upcoming" });
+    setSaved(true); setTimeout(() => setSaved(false), 2000);
+    setShowAdd(false); setForm(EMPTY); setErr("");
+  }
+
+  const upcoming = exams.filter(e => e.status === "upcoming");
+  const completed = exams.filter(e => e.status === "completed");
+
+  return (
+    <div>
+      {saved && <div style={{ padding: "12px 16px", background: "#E8F5E9", borderRadius: 12, marginBottom: 16, fontWeight: 700, color: "#388E3C" }}>✅ Exam scheduled!</div>}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <div style={{ display: "flex", gap: 16 }}>
+          <span style={{ fontWeight: 700, fontSize: 13 }}>⏰ {upcoming.length} upcoming</span>
+          <span style={{ fontWeight: 700, fontSize: 13, color: palette.muted }}>✅ {completed.length} completed</span>
+        </div>
+        <button className="btn btn-primary" onClick={() => { setForm(EMPTY); setErr(""); setShowAdd(true); }}>+ Schedule Exam</button>
+      </div>
+
+      <div className="card">
+        <div className="card-header"><div className="card-title">All Examinations</div></div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Exam Name</th><th>Date</th><th>Time</th><th>Class</th><th>Subject</th><th>Status</th><th>Actions</th></tr>
+            </thead>
+            <tbody>
+              {exams.length === 0 && (
+                <tr><td colSpan={7} style={{ textAlign: "center", color: palette.muted, padding: 32 }}>No exams scheduled yet.</td></tr>
+              )}
+              {exams.map(e => (
+                <tr key={e.id}>
+                  <td><strong>{e.name}</strong></td>
+                  <td>{e.date}</td>
+                  <td>{e.time}</td>
+                  <td><span className="chip" style={{ background: palette.offwhite }}>{e.class}</span></td>
+                  <td>{e.subject}</td>
+                  <td><span className={`badge badge-${e.status}`}>{e.status}</span></td>
+                  <td>
+                    <button className="btn btn-danger btn-sm" onClick={() => setConfirmDel(e)}>🗑</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {showAdd && (
+        <div className="modal-overlay" onClick={() => setShowAdd(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ width: 500 }}>
+            <div className="modal-header">
+              <div className="modal-title">📝 Schedule New Exam</div>
+              <button className="close-btn" onClick={() => setShowAdd(false)}>✕</button>
+            </div>
+            {err && <div style={{ background: "#FFEBEE", color: "#C62828", borderRadius: 10, padding: "10px 14px", fontSize: 13, fontWeight: 700, marginBottom: 16 }}>⚠️ {err}</div>}
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Exam Name *</label>
+                <input className="input" placeholder="e.g. Unit Test 3" value={form.name}
+                  onChange={e => { setForm(p => ({ ...p, name: e.target.value })); setErr(""); }} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Class</label>
+                <select className="select" style={{ width: "100%" }} value={form.class}
+                  onChange={e => setForm(p => ({ ...p, class: e.target.value }))}>
+                  <option value="All">All Classes</option>
+                  {CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
+                  <option value="UKG,LKG">UKG + LKG</option>
+                  <option value="Nursery,Playgroup">Nursery + Playgroup</option>
+                </select>
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Date *</label>
+                <input className="input" type="date" value={form.date}
+                  onChange={e => { setForm(p => ({ ...p, date: e.target.value })); setErr(""); }} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Time</label>
+                <input className="input" type="time" value={form.time}
+                  onChange={e => setForm(p => ({ ...p, time: e.target.value }))} />
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Subject(s)</label>
+              <input className="input" placeholder="e.g. All Subjects / English, Math" value={form.subject}
+                onChange={e => setForm(p => ({ ...p, subject: e.target.value }))} />
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button className="btn btn-ghost" onClick={() => setShowAdd(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleSave}>Schedule Exam</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmDel && (
+        <div className="modal-overlay" onClick={() => setConfirmDel(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ width: 400, textAlign: "center" }}>
+            <div style={{ fontSize: 44, marginBottom: 12 }}>🗑️</div>
+            <div className="modal-title" style={{ marginBottom: 8 }}>Remove Exam?</div>
+            <div style={{ fontSize: 13, color: palette.muted, marginBottom: 24 }}>
+              "<strong>{confirmDel.name}</strong>" on {confirmDel.date} will be removed.
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+              <button className="btn btn-ghost" onClick={() => setConfirmDel(null)}>Cancel</button>
+              <button className="btn btn-danger" onClick={() => { deleteExam(confirmDel.id); setConfirmDel(null); }}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---- USER MANAGEMENT PANEL ----
 function UserManagementPanel({ users, students, addUser, updateUser, deleteUser }) {
   const ROLE_META = {
@@ -2569,8 +2832,9 @@ function UserManagementPanel({ users, students, addUser, updateUser, deleteUser 
 }
 
 function SettingsPage({ role }) {
-  const { feeConfig, setFeeConfig, studentOverrides, setStudentOverrides, students: STUDENTS, resetAllData, users, addUser, updateUser, deleteUser } = useAppData();
+  const { feeConfig, setFeeConfig, studentOverrides, setStudentOverrides, students: STUDENTS, resetAllData, users, addUser, updateUser, deleteUser, announcements: ANNOUNCEMENTS, addAnnouncement, deleteAnnouncement, exams: EXAMS, addExam, deleteExam } = useAppData();
   const [settingsTab, setSettingsTab] = useState("school");
+  const canManageContent = role === "admin" || role === "principal" || role === "teacher";
   const [localCfg, setLocalCfg] = useState({ ...feeConfig });
   const [localClassFee, setLocalClassFee] = useState({ ...feeConfig.classMonthlyFee });
   const [overrideStudent, setOverrideStudent] = useState(null);
@@ -2632,14 +2896,18 @@ function SettingsPage({ role }) {
     <div className="page">
       <div className="page-header">
         <div className="page-title">Settings ⚙️</div>
-        <div className="page-sub">School profile, fee configuration, user management and per-student overrides</div>
+        <div className="page-sub">School profile, fee config, announcements, exam schedule and user management</div>
       </div>
 
-      <div className="tabs">
+      <div className="tabs" style={{ flexWrap: "wrap" }}>
         {[
           { id: "school", label: "🏫 School Profile" },
           { id: "fees", label: "💰 Fee Config" },
           { id: "overrides", label: "👤 Student Overrides" },
+          ...(canManageContent ? [
+            { id: "announcements", label: "📢 Announcements" },
+            { id: "examschedule", label: "📝 Exam Schedule" },
+          ] : []),
           ...(role === "admin" ? [{ id: "users", label: "👥 User Management" }] : []),
         ].map(t => (
           <button key={t.id} className={`tab ${settingsTab === t.id ? "active" : ""}`} onClick={() => setSettingsTab(t.id)}>{t.label}</button>
@@ -2906,6 +3174,14 @@ function SettingsPage({ role }) {
         </div>
       )}
 
+      {settingsTab === "announcements" && canManageContent && (
+        <AnnouncementsPanel announcements={ANNOUNCEMENTS} addAnnouncement={addAnnouncement} deleteAnnouncement={deleteAnnouncement} role={role} />
+      )}
+
+      {settingsTab === "examschedule" && canManageContent && (
+        <ExamSchedulePanel exams={EXAMS} addExam={addExam} deleteExam={deleteExam} role={role} />
+      )}
+
       {settingsTab === "users" && role === "admin" && (
         <UserManagementPanel users={users} students={STUDENTS} addUser={addUser} updateUser={updateUser} deleteUser={deleteUser} />
       )}
@@ -3104,6 +3380,7 @@ function AppInner() {
               <span className="nav-icon">🚪</span>
               <span>Logout</span>
             </div>
+            <div style={{ padding: "8px 20px 0", fontSize: 10, color: "rgba(255,255,255,0.25)", fontWeight: 700, letterSpacing: 1 }}>v0.9.0</div>
           </div>
         </aside>
 
