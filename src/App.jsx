@@ -292,14 +292,14 @@ const PAYMENT_MODE_LABELS = {
 };
 
 const SEED_MARKS = {
-  1: { "English": 88, "Mathematics": 92, "EVS": 85, "Hindi": 78, "General Knowledge": 90, "Art & Craft": 95, "Physical Education": 88 },
-  2: { "English": 72, "Mathematics": 68, "EVS": 75, "Hindi": 80, "General Knowledge": 65, "Art & Craft": 85, "Physical Education": 90 },
-  3: { "English": 80, "Mathematics": 88, "EVS": 76, "Hindi": 72, "Art & Craft": 78, "Physical Education": 92 },
-  4: { "English": 95, "Mathematics": 90, "EVS": 88, "Hindi": 85, "Art & Craft": 92, "Physical Education": 85 },
-  5: { "English": 65, "Math Basics": 70, "EVS": 68, "Rhymes": 88, "Art & Craft": 82 },
-  6: { "English": 78, "Math Basics": 82, "EVS": 79, "Rhymes": 90, "Art & Craft": 88 },
-  7: { "Play & Learn": 85, "Rhymes & Songs": 92, "Art & Craft": 88, "Physical Activity": 95 },
-  8: { "Play & Learn": 78, "Rhymes & Songs": 85, "Art & Craft": 90, "Physical Activity": 88 },
+  1: { "2024-25": { "English": 88, "Mathematics": 92, "EVS": 85, "Hindi": 78, "General Knowledge": 90, "Art & Craft": 95, "Physical Education": 88 } },
+  2: { "2024-25": { "English": 72, "Mathematics": 68, "EVS": 75, "Hindi": 80, "General Knowledge": 65, "Art & Craft": 85, "Physical Education": 90 } },
+  3: { "2024-25": { "English": 80, "Mathematics": 88, "EVS": 76, "Hindi": 72, "Art & Craft": 78, "Physical Education": 92 } },
+  4: { "2024-25": { "English": 95, "Mathematics": 90, "EVS": 88, "Hindi": 85, "Art & Craft": 92, "Physical Education": 85 } },
+  5: { "2024-25": { "English": 65, "Math Basics": 70, "EVS": 68, "Rhymes": 88, "Art & Craft": 82 } },
+  6: { "2024-25": { "English": 78, "Math Basics": 82, "EVS": 79, "Rhymes": 90, "Art & Craft": 88 } },
+  7: { "2024-25": { "Play & Learn": 85, "Rhymes & Songs": 92, "Art & Craft": 88, "Physical Activity": 95 } },
+  8: { "2024-25": { "Play & Learn": 78, "Rhymes & Songs": 85, "Art & Craft": 90, "Physical Activity": 88 } },
 };
 
 const SEED_SYLLABUS = {
@@ -530,8 +530,15 @@ function AppDataProvider({ children }) {
   };
 
   // Save marks
-  const saveMarks = (studentId, newMarks) => {
-    setMarks(prev => ({ ...prev, [studentId]: { ...(prev[studentId] || {}), ...newMarks } }));
+  const saveMarks = (studentId, newMarks, year) => {
+    const yr = year || selectedYear || "2024-25";
+    setMarks(prev => ({
+      ...prev,
+      [studentId]: {
+        ...(prev[studentId] || {}),
+        [yr]: { ...(prev[studentId]?.[yr] || {}), ...newMarks }
+      }
+    }));
   };
 
   // Add announcement
@@ -913,6 +920,21 @@ function avg(marks) {
   const vals = Object.values(marks);
   return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
 }
+// Get marks for a student+year, handles both new year-keyed {year:{subj:score}} and legacy flat {subj:score}
+function getMarksForYear(MARKS, studentId, year) {
+  const raw = MARKS[studentId];
+  if (!raw) return {};
+  // New format: keys are year strings like "2024-25"
+  if (raw[year] && typeof raw[year] === "object" && !Object.values(raw[year]).some(v => typeof v === "object")) {
+    return raw[year];
+  }
+  // Legacy flat format: keys are subject names (values are numbers)
+  if (Object.values(raw).every(v => typeof v === "number")) {
+    // Only return if requested year matches the default seed year (2024-25)
+    return year === "2024-25" ? raw : {};
+  }
+  return raw[year] || {};
+}
 function grade(score) {
   if (score >= 90) return { label: "A+", color: palette.green };
   if (score >= 80) return { label: "A", color: "#4CAF50" };
@@ -1079,11 +1101,19 @@ function ParentDashboard({ currentUser }) {
   const feeStatus = child ? studentFeeStatus(child) : "unknown";
   const feeColor  = feeStatus === "paid" ? palette.green : feeStatus === "overdue" ? palette.red : palette.coral;
 
-  // Child's marks
-  const childMarks = child ? (MARKS[child.id] || {}) : {};
+  // Child's marks for selected year only
+  const childMarks = child ? getMarksForYear(MARKS, child.id, selectedYear) : {};
   const markEntries = Object.entries(childMarks);
-  const avgScore = markEntries.length ? Math.round(markEntries.reduce((s,[,v]) => s + v, 0) / markEntries.length) : null;
-  const topSubject = markEntries.sort((a,b) => b[1]-a[1])[0];
+  const hasMarks = markEntries.length > 0;
+  const avgScore = hasMarks ? Math.round(markEntries.reduce((s,[,v]) => s + v, 0) / markEntries.length) : null;
+  const topSubject = hasMarks ? [...markEntries].sort((a,b) => b[1]-a[1])[0] : null;
+
+  // Fee status for selected year only
+  const hasFeeRecords = yearPayments.length > 0;
+  const yearFeeStatus = !hasFeeRecords ? null
+    : yearPayments.some(([,p]) => p.status === "overdue") ? "overdue"
+    : yearPayments.some(([,p]) => p.status === "pending") ? "pending"
+    : "paid";
 
   // Exams for this year
   const yearExams = EXAMS.filter(e => {
@@ -1138,31 +1168,46 @@ function ParentDashboard({ currentUser }) {
           <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>Academic Year {selectedYear} — {yearLabel}</div>
         </div>
         <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
-          <div style={{ textAlign: "center" }}>
-            <div style={{ fontWeight: 800, fontSize: 22 }}>{avgScore !== null ? `${avgScore}%` : "—"}</div>
-            <div style={{ fontSize: 11, opacity: 0.75 }}>Avg. Score</div>
-          </div>
-          {avgScore !== null && (
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontWeight: 800, fontSize: 22 }}>{gradeLabel(avgScore)}</div>
-              <div style={{ fontSize: 11, opacity: 0.75 }}>Grade</div>
+          {hasMarks ? (
+            <>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontWeight: 800, fontSize: 22 }}>{avgScore}%</div>
+                <div style={{ fontSize: 11, opacity: 0.75 }}>Avg. Score</div>
+              </div>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontWeight: 800, fontSize: 22 }}>{grade(avgScore).label}</div>
+                <div style={{ fontSize: 11, opacity: 0.75 }}>Grade</div>
+              </div>
+            </>
+          ) : (
+            <div style={{ textAlign: "center", opacity: 0.7 }}>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>No marks</div>
+              <div style={{ fontSize: 11, opacity: 0.75 }}>for {selectedYear}</div>
             </div>
           )}
-          <div style={{ textAlign: "center" }}>
-            <div style={{ fontWeight: 800, fontSize: 22, color: feeColor === palette.green ? "#E8F5E9" : "#FFEBEE" }}>{feeStatus.toUpperCase()}</div>
-            <div style={{ fontSize: 11, opacity: 0.75 }}>Fee Status</div>
-          </div>
+          {yearFeeStatus ? (
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontWeight: 800, fontSize: 22,
+                color: yearFeeStatus === "paid" ? "#E8F5E9" : "#FFEBEE" }}>{yearFeeStatus.toUpperCase()}</div>
+              <div style={{ fontSize: 11, opacity: 0.75 }}>Fee Status</div>
+            </div>
+          ) : (
+            <div style={{ textAlign: "center", opacity: 0.7 }}>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>No fees</div>
+              <div style={{ fontSize: 11, opacity: 0.75 }}>for {selectedYear}</div>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Stat cards */}
       <div className="stats-grid" style={{ marginBottom: 24 }}>
         {[
-          { icon: "💰", value: `₹${paidAmt.toLocaleString()}`, label: "Fees Paid", change: dueAmt > 0 ? `₹${dueAmt.toLocaleString()} pending` : "All clear ✅", color: palette.green, up: dueAmt === 0 },
-          { icon: "📊", value: avgScore !== null ? `${avgScore}%` : "—", label: "Average Score", change: topSubject ? `Best: ${topSubject[0]}` : "No marks yet", color: palette.sky, up: avgScore >= 70 },
+          hasFeeRecords && { icon: "💰", value: `₹${paidAmt.toLocaleString()}`, label: "Fees Paid", change: dueAmt > 0 ? `₹${dueAmt.toLocaleString()} pending` : "All clear ✅", color: palette.green, up: dueAmt === 0 },
+          hasMarks && { icon: "📊", value: `${avgScore}%`, label: "Avg. Score", change: topSubject ? `Best: ${topSubject[0]}` : "", color: palette.sky, up: avgScore >= 70 },
           { icon: "📝", value: upcomingExams.length, label: "Upcoming Exams", change: nextExam ? `Next: ${nextExam.date}` : "None scheduled", color: palette.lavender },
           { icon: "📢", value: recentAnn.length, label: "Announcements", change: "School notices", color: palette.coral },
-        ].map((s, i) => (
+        ].filter(Boolean).map((s, i) => (
           <div className="stat-card" key={i} style={{ borderTop: `4px solid ${s.color}` }}>
             <div className="stat-icon">{s.icon}</div>
             <div className="stat-value">{s.value}</div>
@@ -1637,10 +1682,10 @@ function StudentsPage({ role, currentUser }) {
               )}
             </div>
 
-            {MARKS[selected.id] && (
+            {Object.keys(getMarksForYear(MARKS, selected.id, selectedYear)).length > 0 && (
               <>
                 <div style={{ fontWeight: 800, fontSize: 14, color: palette.navy, marginBottom: 12 }}>📊 Academic Performance</div>
-                {Object.entries(MARKS[selected.id]).map(([subj, score]) => (
+                {Object.entries(getMarksForYear(MARKS, selected.id, selectedYear)).map(([subj, score]) => (
                   <div className="perf-subject" key={subj}>
                     <div className="perf-subj-header">
                       <span className="perf-subj-name">{subj}</span>
@@ -1655,19 +1700,19 @@ function StudentsPage({ role, currentUser }) {
                 <div style={{ display: "flex", gap: 12, marginTop: 16 }}>
                   <div style={{ flex: 1, background: "#E8F5E9", borderRadius: 12, padding: 14 }}>
                     <div style={{ fontSize: 11, fontWeight: 800, color: "#388E3C", marginBottom: 8 }}>⭐ STRENGTHS</div>
-                    {strengths(MARKS[selected.id]).map(s => <div key={s} style={{ fontSize: 12, fontWeight: 700, color: "#2E7D32" }}>✓ {s}</div>)}
+                    {strengths(getMarksForYear(MARKS, selected.id, selectedYear)).map(s => <div key={s} style={{ fontSize: 12, fontWeight: 700, color: "#2E7D32" }}>✓ {s}</div>)}
                   </div>
                   <div style={{ flex: 1, background: "#FFF8E1", borderRadius: 12, padding: 14 }}>
                     <div style={{ fontSize: 11, fontWeight: 800, color: "#F57F17", marginBottom: 8 }}>📈 IMPROVE</div>
-                    {improvements(MARKS[selected.id]).length > 0
-                      ? improvements(MARKS[selected.id]).map(s => <div key={s} style={{ fontSize: 12, fontWeight: 700, color: "#E65100" }}>→ {s}</div>)
+                    {improvements(getMarksForYear(MARKS, selected.id, selectedYear)).length > 0
+                      ? improvements(getMarksForYear(MARKS, selected.id, selectedYear)).map(s => <div key={s} style={{ fontSize: 12, fontWeight: 700, color: "#E65100" }}>→ {s}</div>)
                       : <div style={{ fontSize: 12, color: palette.muted }}>All good! 🎉</div>}
                   </div>
                 </div>
 
                 <div style={{ marginTop: 14, padding: "10px 14px", background: palette.offwhite, borderRadius: 10, display: "flex", justifyContent: "space-between" }}>
                   <span style={{ fontSize: 13, fontWeight: 700, color: palette.muted }}>Overall Average</span>
-                  <span style={{ fontSize: 16, fontWeight: 900, color: scoreColor(avg(MARKS[selected.id])) }}>{avg(MARKS[selected.id])}% — {grade(avg(MARKS[selected.id])).label}</span>
+                  <span style={{ fontSize: 16, fontWeight: 900, color: scoreColor(avg(getMarksForYear(MARKS, selected.id, selectedYear))) }}>{avg(getMarksForYear(MARKS, selected.id, selectedYear))}% — {grade(avg(getMarksForYear(MARKS, selected.id, selectedYear))).label}</span>
                 </div>
               </>
             )}
@@ -2690,7 +2735,7 @@ function ParentReportCard({ child, MARKS, selectedYear, feeConfig }) {
   }
 
   const cc = classColors[child.class] || { accent: palette.sky, bg: "#E3F2FD" };
-  const childMarks = MARKS[child.id] || {};
+  const childMarks = getMarksForYear(MARKS, child.id, selectedYear);
   const entries = Object.entries(childMarks);
   const avgScore = entries.length ? Math.round(entries.reduce((s, [, v]) => s + v, 0) / entries.length) : null;
   const g = avgScore !== null ? grade(avgScore) : { label: "—", color: palette.muted };
@@ -2865,7 +2910,7 @@ function MarksPage({ role, currentUser }) {
               </thead>
               <tbody>
                 {classStudents.map(s => {
-                  const marks = MARKS[s.id] || {};
+                  const marks = getMarksForYear(MARKS, s.id, selectedYear);
                   const a = avg(marks);
                   const g = grade(a);
                   return (
@@ -2903,7 +2948,7 @@ function MarksPage({ role, currentUser }) {
                 <div style={{ fontSize: 28 }}>{selectedStudent.photo}</div>
               </div>
               <div className="card-body">
-                {Object.entries(MARKS[selectedStudent.id] || {}).map(([subj, score]) => (
+                {Object.entries(getMarksForYear(MARKS, selectedStudent.id, selectedYear)).map(([subj, score]) => (
                   <div className="perf-subject" key={subj}>
                     <div className="perf-subj-header">
                       <span className="perf-subj-name">{subj}</span>
@@ -2915,28 +2960,28 @@ function MarksPage({ role, currentUser }) {
                   </div>
                 ))}
 
-                {MARKS[selectedStudent.id] && (
+                {Object.keys(getMarksForYear(MARKS, selectedStudent.id, selectedYear)).length > 0 && (
                   <>
                     <div style={{ marginTop: 20, padding: "12px 16px", background: palette.offwhite, borderRadius: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <div>
                         <div style={{ fontSize: 12, color: palette.muted, fontWeight: 700 }}>OVERALL AVERAGE</div>
-                        <div style={{ fontSize: 26, fontWeight: 900, color: palette.navy }}>{avg(MARKS[selectedStudent.id])}%</div>
+                        <div style={{ fontSize: 26, fontWeight: 900, color: palette.navy }}>{avg(getMarksForYear(MARKS, selectedStudent.id, selectedYear))}%</div>
                       </div>
                       <div style={{ textAlign: "right" }}>
                         <div style={{ fontSize: 12, color: palette.muted, fontWeight: 700 }}>GRADE</div>
-                        <div style={{ fontSize: 32, fontWeight: 900, color: grade(avg(MARKS[selectedStudent.id])).color }}>{grade(avg(MARKS[selectedStudent.id])).label}</div>
+                        <div style={{ fontSize: 32, fontWeight: 900, color: grade(avg(getMarksForYear(MARKS, selectedStudent.id, selectedYear))).color }}>{grade(avg(getMarksForYear(MARKS, selectedStudent.id, selectedYear))).label}</div>
                       </div>
                     </div>
 
                     <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
                       <div style={{ flex: 1, background: "#E8F5E9", borderRadius: 10, padding: 12 }}>
                         <div style={{ fontSize: 11, fontWeight: 800, color: "#388E3C", marginBottom: 6 }}>⭐ TOP SUBJECTS</div>
-                        {strengths(MARKS[selectedStudent.id]).map(s => <div key={s} style={{ fontSize: 12, fontWeight: 700, color: "#2E7D32", marginBottom: 2 }}>✓ {s}</div>)}
+                        {strengths(getMarksForYear(MARKS, selectedStudent.id, selectedYear)).map(s => <div key={s} style={{ fontSize: 12, fontWeight: 700, color: "#2E7D32", marginBottom: 2 }}>✓ {s}</div>)}
                       </div>
                       <div style={{ flex: 1, background: "#FFF8E1", borderRadius: 10, padding: 12 }}>
                         <div style={{ fontSize: 11, fontWeight: 800, color: "#F57F17", marginBottom: 6 }}>📈 NEEDS FOCUS</div>
-                        {improvements(MARKS[selectedStudent.id]).length > 0
-                          ? improvements(MARKS[selectedStudent.id]).map(s => <div key={s} style={{ fontSize: 12, fontWeight: 700, color: "#E65100", marginBottom: 2 }}>→ {s}</div>)
+                        {improvements(getMarksForYear(MARKS, selectedStudent.id, selectedYear)).length > 0
+                          ? improvements(getMarksForYear(MARKS, selectedStudent.id, selectedYear)).map(s => <div key={s} style={{ fontSize: 12, fontWeight: 700, color: "#E65100", marginBottom: 2 }}>→ {s}</div>)
                           : <div style={{ fontSize: 12, color: palette.muted }}>Excellent! 🎉</div>}
                       </div>
                     </div>
@@ -2962,7 +3007,7 @@ function AnalyticsPage({ role }) {
   const classStats = CLASSES.map(cls => {
     const students = STUDENTS.filter(s => s.class === cls);
     const avgScore = students.length
-      ? Math.round(students.reduce((sum, s) => sum + (MARKS[s.id] ? avg(MARKS[s.id]) : 0), 0) / students.length)
+      ? Math.round(students.reduce((sum, s) => sum + (getMarksForYear(MARKS, s.id, selectedYear) ? avg(getMarksForYear(MARKS, s.id, selectedYear)) : 0), 0) / students.length)
       : 0;
     return { cls, students: students.length, avgScore };
   });
@@ -3050,8 +3095,8 @@ function AnalyticsPage({ role }) {
             </thead>
             <tbody>
               {STUDENTS
-                .filter(s => MARKS[s.id])
-                .map(s => ({ ...s, avgScore: avg(MARKS[s.id]) }))
+                .filter(s => Object.keys(getMarksForYear(MARKS, s.id, selectedYear)).length > 0)
+                .map(s => ({ ...s, avgScore: avg(getMarksForYear(MARKS, s.id, selectedYear)) }))
                 .sort((a, b) => b.avgScore - a.avgScore)
                 .slice(0, 6)
                 .map((s, idx) => {
@@ -3064,7 +3109,7 @@ function AnalyticsPage({ role }) {
                       <td><span className="class-pill" style={{ background: classColors[s.class].bg, color: classColors[s.class].accent }}>{s.class}</span></td>
                       <td><span style={{ fontWeight: 900, color: scoreColor(s.avgScore) }}>{s.avgScore}%</span></td>
                       <td><span style={{ fontWeight: 900, color: g.color, fontSize: 16 }}>{g.label}</span></td>
-                      <td><span style={{ fontSize: 12, color: palette.muted }}>{strengths(MARKS[s.id]).join(", ")}</span></td>
+                      <td><span style={{ fontSize: 12, color: palette.muted }}>{strengths(getMarksForYear(MARKS, s.id, selectedYear)).join(", ")}</span></td>
                     </tr>
                   );
                 })}
