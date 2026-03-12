@@ -303,29 +303,29 @@ const SEED_MARKS = {
 };
 
 const SEED_SYLLABUS = {
-  "UKG": {
-    "English": [
-      { topic: "Alphabet Recognition", done: true },
-      { topic: "Vowels & Consonants", done: true },
-      { topic: "Three Letter Words", done: true },
-      { topic: "Simple Sentences", done: false },
-      { topic: "Reading Comprehension", done: false },
-    ],
-    "Mathematics": [
-      { topic: "Numbers 1–50", done: true },
-      { topic: "Addition (single digit)", done: true },
-      { topic: "Subtraction", done: true },
-      { topic: "Shapes & Patterns", done: false },
-      { topic: "Measurement Basics", done: false },
-    ],
+  "Playgroup": {
+    "English":      [{ topic:"Patterns",   month:"June", done:true  }, { topic:"Colours",  month:"July",      done:true  }, { topic:"Myself",   month:"August",    done:false }, { topic:"Myself",   month:"September", done:false }],
+    "Maths":        [{ topic:"Patterns",   month:"June", done:true  }, { topic:"Shapes",   month:"July",      done:true  }, { topic:"Numbers",  month:"August",    done:false }, { topic:"Counting", month:"September", done:false }],
+    "EVS":          [{ topic:"Body Parts", month:"June", done:true  }, { topic:"Animals",  month:"July",      done:false }],
+  },
+  "Nursery": {
+    "English":      [{ topic:"A-E Letters",    month:"June",      done:true  }, { topic:"F-J Letters",  month:"July",      done:true  }, { topic:"K-O Letters",   month:"August",    done:false }, { topic:"P-T Letters",  month:"September", done:false }, { topic:"U-Z Letters",  month:"October",   done:false }],
+    "Maths":        [{ topic:"Numbers 1–5",    month:"June",      done:true  }, { topic:"Numbers 6–10", month:"July",      done:true  }, { topic:"Shapes",        month:"August",    done:false }, { topic:"Counting",     month:"September", done:false }],
+    "EVS":          [{ topic:"My Family",      month:"June",      done:true  }, { topic:"My Home",      month:"July",      done:false }, { topic:"Plants",        month:"August",    done:false }],
+    "Rhymes":       [{ topic:"Twinkle Star",   month:"June",      done:true  }, { topic:"Jack & Jill",  month:"July",      done:true  }, { topic:"Baa Baa Sheep", month:"August",    done:false }],
   },
   "LKG": {
-    "English": [
-      { topic: "Alphabet A–Z", done: true },
-      { topic: "Phonics Introduction", done: true },
-      { topic: "Two Letter Words", done: false },
-      { topic: "Nursery Rhymes", done: true },
-    ],
+    "English":      [{ topic:"Alphabet A–Z",       month:"June",      done:true  }, { topic:"Phonics Introduction", month:"July",      done:true  }, { topic:"Two Letter Words",   month:"August",    done:false }, { topic:"Nursery Rhymes",      month:"September", done:false }],
+    "Mathematics":  [{ topic:"Numbers 1–20",       month:"June",      done:true  }, { topic:"Basic Shapes",         month:"July",      done:true  }, { topic:"Addition (single)",  month:"August",    done:false }, { topic:"Patterns",            month:"September", done:false }],
+    "EVS":          [{ topic:"Body Parts",          month:"June",      done:true  }, { topic:"Animals & Birds",      month:"July",      done:false }, { topic:"Food & Plants",      month:"August",    done:false }],
+    "Art & Craft":  [{ topic:"Free Drawing",        month:"June",      done:true  }, { topic:"Colouring",            month:"July",      done:true  }, { topic:"Paper Folding",      month:"August",    done:false }],
+  },
+  "UKG": {
+    "English":      [{ topic:"Alphabet Recognition", month:"June",      done:true  }, { topic:"Vowels & Consonants", month:"July",      done:true  }, { topic:"Three Letter Words",  month:"August",    done:true  }, { topic:"Simple Sentences",   month:"September", done:false }, { topic:"Reading Comprehension", month:"October", done:false }],
+    "Mathematics":  [{ topic:"Numbers 1–50",         month:"June",      done:true  }, { topic:"Addition (single)",   month:"July",      done:true  }, { topic:"Subtraction",         month:"August",    done:true  }, { topic:"Shapes & Patterns",  month:"September", done:false }, { topic:"Measurement Basics",   month:"October",  done:false }],
+    "EVS":          [{ topic:"My School",            month:"June",      done:true  }, { topic:"Animals",             month:"July",      done:true  }, { topic:"Plants & Trees",      month:"August",    done:false }, { topic:"Weather",            month:"September", done:false }],
+    "Hindi":        [{ topic:"Swar (vowels)",        month:"June",      done:true  }, { topic:"Vyanjan (consonants)",month:"July",      done:false }, { topic:"Simple Words",        month:"August",    done:false }],
+    "Art & Craft":  [{ topic:"Free Drawing",        month:"June",      done:true  }, { topic:"Patterns",            month:"July",      done:true  }, { topic:"Clay Work",           month:"August",    done:false }],
   },
 };
 
@@ -2476,106 +2476,411 @@ function FeesPage({ role, currentUser }) {
 }
 
 // ---- SYLLABUS ----
-function SyllabusPage({ role }) {
-  const { syllabus: SYLLABUS, toggleSyllabusTopic, feeConfig, selectedYear, setSelectedYear, availableYears, subjects: SUBJECTS_DATA } = useAppData();
-  const [selectedClass, setSelectedClass] = useState("UKG");
-  const [selectedSubject, setSelectedSubject] = useState("English");
+function SyllabusPage({ role, currentUser }) {
+  const { syllabus: SYLLABUS, setSyllabus, toggleSyllabusTopic, feeConfig, selectedYear, setSelectedYear, availableYears, subjects: SUBJECTS_DATA } = useAppData();
 
-  const subjects = (SUBJECTS_DATA || SUBJECTS)[selectedClass] || [];
-  const syllabusData = SYLLABUS[selectedClass]?.[selectedSubject] || [];
-  const done = syllabusData.filter(t => t.done).length;
+  const MONTHS = ["June","July","August","September","October","November","December","January","February","March"];
+  const teacherClass = role === "teacher" && currentUser?.assignedClass ? currentUser.assignedClass : null;
   const canEdit = role === "admin" || role === "principal" || role === "teacher";
+
+  const [selectedClass, setSelectedClass] = useState(() => teacherClass || "UKG");
+  const [view, setView] = useState("month"); // "month" | "subject"
+  const [selectedMonth, setSelectedMonth] = useState("June");
+  const [selectedSubject, setSelectedSubject] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState("");
+  const [showUpload, setShowUpload] = useState(false);
+  const fileRef = React.useRef();
+
+  // Syllabus for current class: { subject: [{ topic, month, done }] }
+  const classSyllabus = SYLLABUS[selectedClass] || {};
+  const subjects = Object.keys(classSyllabus);
+
+  // Ensure selectedSubject is valid
+  React.useEffect(() => {
+    if (subjects.length && (!selectedSubject || !subjects.includes(selectedSubject))) {
+      setSelectedSubject(subjects[0]);
+    }
+  }, [selectedClass, subjects.join(",")]);
+
+  // Topics for selected month (across all subjects)
+  const monthTopics = subjects.flatMap(subj =>
+    (classSyllabus[subj] || [])
+      .map((t, i) => ({ ...t, subject: subj, idx: i }))
+      .filter(t => t.month === selectedMonth)
+  );
+
+  // Topics for selected subject
+  const subjectTopics = selectedSubject ? (classSyllabus[selectedSubject] || []) : [];
+
+  // Overall progress per subject
+  function subjProgress(subj) {
+    const items = classSyllabus[subj] || [];
+    if (!items.length) return { done: 0, total: 0, pct: 0 };
+    const done = items.filter(t => t.done).length;
+    return { done, total: items.length, pct: Math.round((done / items.length) * 100) };
+  }
+
+  // Parse uploaded XLSX using SheetJS (loaded from CDN)
+  function handleUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    setUploadMsg("");
+
+    const loadXLSX = () => new Promise((res, rej) => {
+      if (window.XLSX) { res(window.XLSX); return; }
+      const s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+      s.onload = () => res(window.XLSX);
+      s.onerror = rej;
+      document.head.appendChild(s);
+    });
+
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      try {
+        const XLSX = await loadXLSX();
+        const wb = XLSX.read(ev.target.result, { type: "array" });
+
+        // Map sheet names to our class names
+        const classMap = {
+          "playgroup": "Playgroup", "play group": "Playgroup",
+          "nursery": "Nursery",
+          "lkg": "LKG", "l.k.g": "LKG",
+          "ukg": "UKG", "u.k.g": "UKG",
+        };
+
+        const newSyllabus = { ...SYLLABUS };
+        let imported = [];
+
+        wb.SheetNames.forEach(sheetName => {
+          const cls = classMap[sheetName.toLowerCase().trim()] || sheetName;
+          const ws = wb.Sheets[sheetName];
+          const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+
+          if (rows.length < 2) return;
+
+          // Row 0: headers — first col is "Topic", rest are month names
+          const headers = rows[0].map(h => String(h || "").trim());
+          const monthCols = headers.slice(1).map(h => {
+            // Normalize month name
+            const m = MONTHS.find(mn => mn.toLowerCase().startsWith(h.toLowerCase().slice(0, 3)));
+            return m || h;
+          });
+
+          const subjectMap = {};
+          rows.slice(1).forEach(row => {
+            const subject = String(row[0] || "").trim();
+            if (!subject) return;
+            if (!subjectMap[subject]) subjectMap[subject] = [];
+            monthCols.forEach((month, mi) => {
+              const topicRaw = String(row[mi + 1] || "").trim();
+              if (topicRaw) {
+                // Check if topic already exists to preserve done status
+                const existing = (newSyllabus[cls]?.[subject] || [])
+                  .find(t => t.topic === topicRaw && t.month === month);
+                subjectMap[subject].push({ topic: topicRaw, month, done: existing?.done || false });
+              }
+            });
+          });
+
+          newSyllabus[cls] = subjectMap;
+          imported.push(`${cls} (${Object.keys(subjectMap).length} subjects)`);
+        });
+
+        setSyllabus(newSyllabus);
+        setUploadMsg(`✅ Imported: ${imported.join(", ")}`);
+        // Auto-switch to first imported class
+        const firstCls = Object.keys(newSyllabus).find(c => imported.some(i => i.startsWith(c)));
+        if (firstCls) setSelectedClass(firstCls);
+      } catch (err) {
+        setUploadMsg("❌ Error reading file: " + err.message);
+      }
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  const totalTopics = subjects.reduce((s, subj) => s + (classSyllabus[subj] || []).length, 0);
+  const doneTopics  = subjects.reduce((s, subj) => s + (classSyllabus[subj] || []).filter(t => t.done).length, 0);
+  const overallPct  = totalTopics ? Math.round((doneTopics / totalTopics) * 100) : 0;
+
   return (
     <div className="page">
+      {/* Header */}
       <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
         <div>
           <div className="page-title">Syllabus Tracker 📚</div>
           <div className="page-sub">📅 {selectedYear} · {feeConfig?.years?.[selectedYear]?.label || "Academic Year"}</div>
         </div>
-        <YearSelector selectedYear={selectedYear} setSelectedYear={setSelectedYear} availableYears={availableYears} feeConfig={feeConfig} />
-      </div>
-
-      <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
-        {CLASSES.map(cls => {
-          const cc = classColors[cls];
-          return (
-            <button key={cls} className="btn" onClick={() => { setSelectedClass(cls); setSelectedSubject(((SUBJECTS_DATA || SUBJECTS)[cls] || [])[0] || ""); }}
-              style={{ background: selectedClass === cls ? cc.accent : cc.bg, color: selectedClass === cls ? "white" : cc.accent, border: "none" }}>
-              {cls}
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <YearSelector />
+          {canEdit && (
+            <button className="btn btn-primary" onClick={() => setShowUpload(true)}>
+              ⬆️ Upload Syllabus
             </button>
-          );
-        })}
+          )}
+        </div>
       </div>
 
-      <div className="grid-2">
-        <div>
-          <div className="card" style={{ marginBottom: 16 }}>
-            <div className="card-header">
-              <div className="card-title">Subjects — {selectedClass}</div>
-            </div>
-            <div className="card-body" style={{ padding: 12 }}>
-              {subjects.map(subj => {
-                const items = SYLLABUS[selectedClass]?.[subj] || [];
-                const d = items.filter(i => i.done).length;
-                const pct = items.length ? Math.round((d / items.length) * 100) : 0;
-                const clr = pct >= 80 ? palette.green : pct >= 50 ? palette.sky : palette.coral;
-                return (
-                  <div key={subj} onClick={() => setSelectedSubject(subj)}
-                    style={{ padding: "12px 14px", borderRadius: 10, cursor: "pointer", marginBottom: 4, background: selectedSubject === subj ? palette.offwhite : "transparent", border: `1px solid ${selectedSubject === subj ? palette.border : "transparent"}` }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                      <span style={{ fontWeight: 700, fontSize: 13, color: palette.navy }}>{subj}</span>
-                      <span style={{ fontSize: 12, fontWeight: 800, color: clr }}>{pct}%</span>
-                    </div>
-                    <div className="progress-bar">
-                      <div className="progress-fill" style={{ width: `${pct}%`, background: clr }} />
-                    </div>
-                    {items.length === 0 && <div style={{ fontSize: 11, color: palette.muted, marginTop: 4 }}>No topics added</div>}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+      {/* Upload success/error message */}
+      {uploadMsg && (
+        <div style={{ padding: "10px 16px", borderRadius: 10, marginBottom: 16, fontWeight: 700, fontSize: 13,
+          background: uploadMsg.startsWith("✅") ? "#E8F5E9" : "#FFEBEE",
+          color: uploadMsg.startsWith("✅") ? "#388E3C" : "#C62828" }}>
+          {uploadMsg}
         </div>
+      )}
 
-        <div className="card">
-          <div className="card-header">
-            <div style={{ display: "flex", flexDirection: "column" }}>
-              <div className="card-title">{selectedSubject} — Topics</div>
-              {syllabusData.length > 0 && <div style={{ fontSize: 12, color: palette.muted, marginTop: 2 }}>{done}/{syllabusData.length} covered</div>}
-            </div>
-            {canEdit && <button className="btn btn-primary btn-sm">+ Add Topic</button>}
+      {/* Class tabs — hidden for teachers */}
+      {!teacherClass && (
+        <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+          {CLASSES.map(cls => {
+            const cc = classColors[cls];
+            return (
+              <button key={cls} className="btn" onClick={() => setSelectedClass(cls)}
+                style={{ background: selectedClass === cls ? cc.accent : cc.bg,
+                  color: selectedClass === cls ? "white" : cc.accent, border: "none", fontWeight: 700 }}>
+                {cls}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {subjects.length === 0 ? (
+        /* Empty state */
+        <div className="card" style={{ textAlign: "center", padding: 56 }}>
+          <div style={{ fontSize: 56, marginBottom: 16 }}>📂</div>
+          <div style={{ fontWeight: 800, fontSize: 17, color: palette.navy, marginBottom: 8 }}>
+            No syllabus uploaded for {selectedClass}
           </div>
-          <div className="card-body">
-            {syllabusData.length === 0 ? (
-              <div style={{ textAlign: "center", color: palette.muted, padding: 40 }}>
-                <div style={{ fontSize: 40 }}>📋</div>
-                <div style={{ fontWeight: 700, marginTop: 8 }}>No topics added yet</div>
-                {canEdit && <button className="btn btn-primary" style={{ marginTop: 12 }}>Add First Topic</button>}
+          <div style={{ color: palette.muted, fontSize: 13, marginBottom: 24, lineHeight: 1.7 }}>
+            Upload an Excel file to get started.<br />
+            <strong>Format:</strong> Sheet name = Class, Row 1 = months (June–March), Column A = Subject names, rest = topic per month.
+          </div>
+          {canEdit && (
+            <button className="btn btn-primary" onClick={() => setShowUpload(true)}>
+              ⬆️ Upload Syllabus Excel
+            </button>
+          )}
+        </div>
+      ) : (
+        <>
+          {/* Summary bar */}
+          <div style={{ background: palette.offwhite, borderRadius: 14, padding: "14px 20px", marginBottom: 20,
+            display: "flex", alignItems: "center", gap: 24, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 22, color: palette.navy }}>{overallPct}%</div>
+              <div style={{ fontSize: 11, color: palette.muted, fontWeight: 700 }}>Overall Progress</div>
+            </div>
+            <div style={{ flex: 1, minWidth: 160 }}>
+              <div className="progress-bar" style={{ height: 10 }}>
+                <div className="progress-fill" style={{ width: `${overallPct}%`,
+                  background: overallPct >= 80 ? palette.green : overallPct >= 50 ? palette.sky : palette.coral }} />
               </div>
-            ) : (
-              <>
-                <div style={{ marginBottom: 16 }}>
-                  <div className="progress-bar" style={{ height: 12 }}>
-                    <div className="progress-fill" style={{ width: `${Math.round((done / syllabusData.length) * 100)}%`, background: palette.green }} />
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 11, color: palette.muted, fontWeight: 700 }}>
-                    <span>{done} topics covered</span>
-                    <span>{syllabusData.length - done} remaining</span>
-                  </div>
+              <div style={{ fontSize: 11, color: palette.muted, marginTop: 4 }}>{doneTopics} of {totalTopics} topics covered</div>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {["month","subject"].map(v => (
+                <button key={v} onClick={() => setView(v)}
+                  style={{ padding: "6px 16px", borderRadius: 20, border: `2px solid ${view === v ? palette.navy : palette.border}`,
+                    background: view === v ? palette.navy : "white", color: view === v ? "white" : palette.muted,
+                    fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "'Nunito', sans-serif" }}>
+                  {v === "month" ? "📅 Month View" : "📖 Subject View"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* ── MONTH VIEW ── */}
+          {view === "month" && (
+            <div className="grid-2">
+              {/* Month selector */}
+              <div className="card">
+                <div className="card-header"><div className="card-title">Months</div></div>
+                <div className="card-body" style={{ padding: 8 }}>
+                  {MONTHS.map(mo => {
+                    const moTopics = subjects.flatMap(s => (classSyllabus[s] || []).filter(t => t.month === mo));
+                    const moDone = moTopics.filter(t => t.done).length;
+                    const moTotal = moTopics.length;
+                    const moPct = moTotal ? Math.round((moDone / moTotal) * 100) : 0;
+                    const clr = moPct >= 80 ? palette.green : moPct >= 40 ? palette.sky : moTotal ? palette.coral : palette.muted;
+                    return (
+                      <div key={mo} onClick={() => setSelectedMonth(mo)} style={{ padding: "10px 12px", borderRadius: 10,
+                        cursor: "pointer", marginBottom: 4,
+                        background: selectedMonth === mo ? palette.offwhite : "transparent",
+                        border: `1px solid ${selectedMonth === mo ? palette.border : "transparent"}` }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: moTotal ? 6 : 0 }}>
+                          <span style={{ fontWeight: 700, fontSize: 13, color: palette.navy }}>{mo}</span>
+                          {moTotal > 0 && <span style={{ fontSize: 11, fontWeight: 800, color: clr }}>{moDone}/{moTotal}</span>}
+                          {moTotal === 0 && <span style={{ fontSize: 11, color: palette.muted }}>—</span>}
+                        </div>
+                        {moTotal > 0 && (
+                          <div className="progress-bar">
+                            <div className="progress-fill" style={{ width: `${moPct}%`, background: clr }} />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-                {syllabusData.map((t, i) => (
-                  <div key={i} className="syllabus-item">
-                    <div className={`check-circle ${t.done ? "check-done" : "check-todo"}`}>{t.done ? "✓" : "○"}</div>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: t.done ? palette.navy : palette.muted, textDecoration: t.done ? "none" : "none" }}>{t.topic}</span>
-                    {canEdit && !t.done && <button className="btn btn-success btn-sm" style={{ marginLeft: "auto" }} onClick={() => toggleSyllabusTopic(selectedClass, selectedSubject, i)}>Mark Done</button>}
-                    {canEdit && t.done && <button className="btn btn-ghost btn-sm" style={{ marginLeft: "auto", fontSize: 10 }} onClick={() => toggleSyllabusTopic(selectedClass, selectedSubject, i)}>Undo</button>}
-                  </div>
-                ))}
-              </>
-            )}
+              </div>
+
+              {/* Topics for selected month */}
+              <div className="card">
+                <div className="card-header">
+                  <div className="card-title">📅 {selectedMonth} — Topics</div>
+                  <div style={{ fontSize: 12, color: palette.muted }}>{monthTopics.filter(t => t.done).length}/{monthTopics.length} done</div>
+                </div>
+                <div className="card-body">
+                  {monthTopics.length === 0 ? (
+                    <div style={{ textAlign: "center", color: palette.muted, padding: 32 }}>No topics planned for {selectedMonth}</div>
+                  ) : (
+                    Object.entries(
+                      monthTopics.reduce((acc, t) => { (acc[t.subject] = acc[t.subject] || []).push(t); return acc; }, {})
+                    ).map(([subj, topics]) => (
+                      <div key={subj} style={{ marginBottom: 20 }}>
+                        <div style={{ fontWeight: 800, fontSize: 12, color: palette.sky, textTransform: "uppercase",
+                          letterSpacing: 1, marginBottom: 8, paddingBottom: 4, borderBottom: `2px solid ${palette.border}` }}>
+                          {subj}
+                        </div>
+                        {topics.map((t) => (
+                          <div key={t.idx} className="syllabus-item" style={{ padding: "8px 4px" }}>
+                            <div className={`check-circle ${t.done ? "check-done" : "check-todo"}`}>{t.done ? "✓" : "○"}</div>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: t.done ? palette.navy : palette.muted,
+                              flex: 1, textDecoration: t.done ? "line-through" : "none" }}>{t.topic}</span>
+                            {canEdit && (
+                              <button className={`btn btn-sm ${t.done ? "btn-ghost" : "btn-success"}`}
+                                style={{ fontSize: 11 }}
+                                onClick={() => toggleSyllabusTopic(selectedClass, t.subject, t.idx)}>
+                                {t.done ? "Undo" : "Mark Done"}
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── SUBJECT VIEW ── */}
+          {view === "subject" && (
+            <div className="grid-2">
+              {/* Subject list */}
+              <div className="card">
+                <div className="card-header"><div className="card-title">Subjects — {selectedClass}</div></div>
+                <div className="card-body" style={{ padding: 8 }}>
+                  {subjects.map(subj => {
+                    const { done, total, pct } = subjProgress(subj);
+                    const clr = pct >= 80 ? palette.green : pct >= 50 ? palette.sky : palette.coral;
+                    return (
+                      <div key={subj} onClick={() => setSelectedSubject(subj)} style={{ padding: "12px 14px", borderRadius: 10,
+                        cursor: "pointer", marginBottom: 4,
+                        background: selectedSubject === subj ? palette.offwhite : "transparent",
+                        border: `1px solid ${selectedSubject === subj ? palette.border : "transparent"}` }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                          <span style={{ fontWeight: 700, fontSize: 13, color: palette.navy }}>{subj}</span>
+                          <span style={{ fontSize: 12, fontWeight: 800, color: clr }}>{pct}%</span>
+                        </div>
+                        <div className="progress-bar">
+                          <div className="progress-fill" style={{ width: `${pct}%`, background: clr }} />
+                        </div>
+                        <div style={{ fontSize: 11, color: palette.muted, marginTop: 4 }}>{done}/{total} topics</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Topics for selected subject, grouped by month */}
+              <div className="card">
+                <div className="card-header">
+                  <div className="card-title">📖 {selectedSubject}</div>
+                  {selectedSubject && (() => { const { done, total } = subjProgress(selectedSubject); return <div style={{ fontSize: 12, color: palette.muted }}>{done}/{total} covered</div>; })()}
+                </div>
+                <div className="card-body">
+                  {!selectedSubject || subjectTopics.length === 0 ? (
+                    <div style={{ textAlign: "center", color: palette.muted, padding: 32 }}>Select a subject to see topics</div>
+                  ) : (
+                    MONTHS.filter(mo => subjectTopics.some(t => t.month === mo)).map(mo => {
+                      const moItems = subjectTopics.map((t, i) => ({ ...t, idx: i })).filter(t => t.month === mo);
+                      return (
+                        <div key={mo} style={{ marginBottom: 20 }}>
+                          <div style={{ fontWeight: 800, fontSize: 12, color: palette.lavender, textTransform: "uppercase",
+                            letterSpacing: 1, marginBottom: 8, paddingBottom: 4, borderBottom: `2px solid ${palette.border}` }}>
+                            {mo}
+                          </div>
+                          {moItems.map(t => (
+                            <div key={t.idx} className="syllabus-item" style={{ padding: "8px 4px" }}>
+                              <div className={`check-circle ${t.done ? "check-done" : "check-todo"}`}>{t.done ? "✓" : "○"}</div>
+                              <span style={{ fontSize: 13, fontWeight: 600, color: t.done ? palette.navy : palette.muted,
+                                flex: 1, textDecoration: t.done ? "line-through" : "none" }}>{t.topic}</span>
+                              {canEdit && (
+                                <button className={`btn btn-sm ${t.done ? "btn-ghost" : "btn-success"}`}
+                                  style={{ fontSize: 11 }}
+                                  onClick={() => toggleSyllabusTopic(selectedClass, selectedSubject, t.idx)}>
+                                  {t.done ? "Undo" : "Mark Done"}
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Upload Modal */}
+      {showUpload && (
+        <div className="modal-overlay" onClick={() => setShowUpload(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ width: 520 }}>
+            <div className="modal-header">
+              <div className="modal-title">⬆️ Upload Syllabus Excel</div>
+              <button className="close-btn" onClick={() => setShowUpload(false)}>✕</button>
+            </div>
+
+            <div style={{ background: "#E3F2FD", borderRadius: 12, padding: "14px 16px", marginBottom: 20, fontSize: 13, color: "#1565C0", lineHeight: 1.7 }}>
+              <strong>Expected Excel format:</strong><br />
+              • One sheet per class (e.g. <em>PlayGroup, Nursery, LKG, UKG</em>)<br />
+              • Row 1: <strong>Topic</strong> | June | July | August | … | March<br />
+              • Each row: Subject name in column A, topic names in month columns<br />
+              • Leave cells blank if no topic is planned for that month
+            </div>
+
+            <div style={{ border: `2px dashed ${palette.border}`, borderRadius: 14, padding: "32px 24px",
+              textAlign: "center", background: palette.offwhite, marginBottom: 20 }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>📊</div>
+              <div style={{ fontWeight: 700, color: palette.navy, marginBottom: 8 }}>
+                {uploading ? "Processing..." : "Choose an Excel file (.xlsx)"}
+              </div>
+              <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }}
+                onChange={e => { handleUpload(e); setShowUpload(false); }} />
+              <button className="btn btn-primary" disabled={uploading}
+                onClick={() => fileRef.current?.click()}>
+                {uploading ? "⏳ Importing..." : "📂 Browse File"}
+              </button>
+              <div style={{ fontSize: 11, color: palette.muted, marginTop: 10 }}>
+                All classes in the file will be imported at once
+              </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button className="btn btn-ghost" onClick={() => setShowUpload(false)}>Cancel</button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
