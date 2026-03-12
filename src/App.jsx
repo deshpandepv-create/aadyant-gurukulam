@@ -1038,7 +1038,212 @@ function LoginScreen({ onLogin, users }) {
 }
 
 // ---- DASHBOARD ----
-function Dashboard({ role }) {
+// ============================================================
+// PARENT DASHBOARD — shows only their child's data
+// ============================================================
+function ParentDashboard({ currentUser }) {
+  const { students: STUDENTS, marks: MARKS, feeConfig, announcements: ANNOUNCEMENTS, exams: EXAMS, selectedYear, setSelectedYear, availableYears } = useAppData();
+
+  // Find the linked child
+  const linkedId = currentUser?.linkedStudentId ? Number(currentUser.linkedStudentId) : null;
+  const child = linkedId ? STUDENTS.find(s => s.id === linkedId) : null;
+
+  const yearStart = selectedYear ? parseInt(selectedYear.split("-")[0]) : new Date().getFullYear();
+  const yearEnd   = yearStart + 1;
+  const yearLabel = feeConfig?.years?.[selectedYear]?.label || selectedYear;
+  const cc = child ? classColors[child.class] : { bg: "#f5f5f5", accent: palette.sky };
+
+  // Child's fee info for selected year
+  const childPayments = Object.entries(child?.payments || {});
+  const yearMonthNames = (() => {
+    const M = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const r = [];
+    for (let m = 6; m <= 12; m++) r.push(`${M[m-1]}-${yearStart}`);
+    for (let m = 1; m <= 3;  m++) r.push(`${M[m-1]}-${yearEnd}`);
+    return r;
+  })();
+  const yearPayments = childPayments.filter(([k]) => yearMonthNames.some(ym => k.startsWith(ym.split("-")[0]) && k.endsWith(ym.split("-")[1])));
+  const paidAmt  = yearPayments.filter(([,p]) => p.status === "paid").reduce((s,[,p]) => s + p.amount, 0);
+  const dueAmt   = yearPayments.filter(([,p]) => p.status !== "paid" && p.status !== "covered").reduce((s,[,p]) => s + p.amount, 0);
+  const feeStatus = child ? studentFeeStatus(child) : "unknown";
+  const feeColor  = feeStatus === "paid" ? palette.green : feeStatus === "overdue" ? palette.red : palette.coral;
+
+  // Child's marks
+  const childMarks = child ? (MARKS[child.id] || {}) : {};
+  const markEntries = Object.entries(childMarks);
+  const avgScore = markEntries.length ? Math.round(markEntries.reduce((s,[,v]) => s + v, 0) / markEntries.length) : null;
+  const topSubject = markEntries.sort((a,b) => b[1]-a[1])[0];
+
+  // Exams for this year
+  const yearExams = EXAMS.filter(e => {
+    if (!e.date) return false;
+    const [ey, em] = e.date.split("-").map(Number);
+    return (ey === yearStart && em >= 6) || (ey === yearEnd && em <= 5);
+  }).filter(e => e.class === "All" || (child && e.class.split(",").map(s=>s.trim()).includes(child.class)));
+  const upcomingExams = yearExams.filter(e => e.status === "upcoming").sort((a,b) => a.date.localeCompare(b.date));
+  const nextExam = upcomingExams[0];
+
+  // Announcements — all school-wide (parents see general announcements)
+  const recentAnn = [...ANNOUNCEMENTS].sort((a,b) => b.date?.localeCompare(a.date)).slice(0, 5);
+
+  const gradeLabel = (avg) => avg >= 90 ? "A+" : avg >= 80 ? "A" : avg >= 70 ? "B" : avg >= 60 ? "C" : "D";
+
+  if (!child) {
+    return (
+      <div className="page">
+        <div className="page-header"><div className="page-title">Welcome 👋</div></div>
+        <div className="card" style={{ textAlign: "center", padding: 48 }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>👨‍👩‍👧</div>
+          <div style={{ fontWeight: 800, fontSize: 18, color: palette.navy, marginBottom: 8 }}>No child linked to your account</div>
+          <div style={{ color: palette.muted, fontSize: 14 }}>Please contact the school admin to link your child's profile to your account.</div>
+        </div>
+      </div>
+    );
+  }
+
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good Morning" : hour < 17 ? "Good Afternoon" : "Good Evening";
+
+  return (
+    <div className="page">
+      {/* Header */}
+      <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <div className="page-title">{greeting}, {currentUser?.name?.split(" ")[0]}! 👋</div>
+          <div className="page-sub">Here's an update on {child.name}'s progress</div>
+        </div>
+        <YearSelector />
+      </div>
+
+      {/* Child hero card */}
+      <div style={{ background: `linear-gradient(135deg, ${cc.accent} 0%, ${cc.accent}CC 100%)`, borderRadius: 16,
+        padding: "20px 24px", marginBottom: 24, color: "white", display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 56, lineHeight: 1 }}>{child.photo}</div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontFamily: "'Fredoka One', cursive", fontSize: 24 }}>{child.name}</div>
+          <div style={{ fontSize: 13, opacity: 0.85, marginTop: 2 }}>{child.class} · Roll No. {child.rollNo} · Admitted {child.admissionDate}</div>
+          <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>Academic Year {selectedYear} — {yearLabel}</div>
+        </div>
+        <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontWeight: 800, fontSize: 22 }}>{avgScore !== null ? `${avgScore}%` : "—"}</div>
+            <div style={{ fontSize: 11, opacity: 0.75 }}>Avg. Score</div>
+          </div>
+          {avgScore !== null && (
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontWeight: 800, fontSize: 22 }}>{gradeLabel(avgScore)}</div>
+              <div style={{ fontSize: 11, opacity: 0.75 }}>Grade</div>
+            </div>
+          )}
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontWeight: 800, fontSize: 22, color: feeColor === palette.green ? "#E8F5E9" : "#FFEBEE" }}>{feeStatus.toUpperCase()}</div>
+            <div style={{ fontSize: 11, opacity: 0.75 }}>Fee Status</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Stat cards */}
+      <div className="stats-grid" style={{ marginBottom: 24 }}>
+        {[
+          { icon: "💰", value: `₹${paidAmt.toLocaleString()}`, label: "Fees Paid", change: dueAmt > 0 ? `₹${dueAmt.toLocaleString()} pending` : "All clear ✅", color: palette.green, up: dueAmt === 0 },
+          { icon: "📊", value: avgScore !== null ? `${avgScore}%` : "—", label: "Average Score", change: topSubject ? `Best: ${topSubject[0]}` : "No marks yet", color: palette.sky, up: avgScore >= 70 },
+          { icon: "📝", value: upcomingExams.length, label: "Upcoming Exams", change: nextExam ? `Next: ${nextExam.date}` : "None scheduled", color: palette.lavender },
+          { icon: "📢", value: recentAnn.length, label: "Announcements", change: "School notices", color: palette.coral },
+        ].map((s, i) => (
+          <div className="stat-card" key={i} style={{ borderTop: `4px solid ${s.color}` }}>
+            <div className="stat-icon">{s.icon}</div>
+            <div className="stat-value">{s.value}</div>
+            <div className="stat-label">{s.label}</div>
+            <div className={`stat-change ${s.up ? "up" : ""}`}>{s.change}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid-2">
+        {/* Subject Performance */}
+        <div className="card">
+          <div className="card-header"><div className="card-title">📊 Subject Scores</div></div>
+          <div className="card-body">
+            {markEntries.length === 0 && <div style={{ color: palette.muted, fontSize: 13 }}>No marks recorded yet.</div>}
+            {[...markEntries].sort((a,b) => b[1]-a[1]).map(([subj, score]) => {
+              const pct = Math.min(score, 100);
+              const col = score >= 80 ? palette.green : score >= 60 ? palette.sky : palette.coral;
+              return (
+                <div key={subj} style={{ marginBottom: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+                    <span style={{ fontWeight: 700, fontSize: 13, color: palette.navy }}>{subj}</span>
+                    <span style={{ fontWeight: 800, fontSize: 13, color: col }}>{score}%</span>
+                  </div>
+                  <div className="progress-bar">
+                    <div className="progress-fill" style={{ width: `${pct}%`, background: col }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Right column: upcoming exams + announcements */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Fee Summary */}
+          <div className="card">
+            <div className="card-header"><div className="card-title">💰 Fee Summary — {selectedYear}</div></div>
+            <div className="card-body" style={{ padding: "12px 0" }}>
+              {yearPayments.length === 0 && <div style={{ color: palette.muted, fontSize: 13, padding: "0 16px" }}>No fee records for this year.</div>}
+              {yearPayments.slice(0, 6).map(([key, p]) => (
+                <div key={key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+                  padding: "8px 16px", borderBottom: `1px solid ${palette.border}` }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: palette.navy }}>{key}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700 }}>₹{p.amount?.toLocaleString()}</span>
+                    <span className={`badge badge-${p.status}`}>{p.status}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Upcoming Exams */}
+          <div className="card">
+            <div className="card-header"><div className="card-title">📝 Upcoming Exams</div></div>
+            <div className="card-body">
+              {upcomingExams.length === 0 && <div style={{ color: palette.muted, fontSize: 13 }}>No upcoming exams.</div>}
+              {upcomingExams.slice(0, 4).map(e => (
+                <div key={e.id} style={{ padding: "10px 0", borderBottom: `1px solid ${palette.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: palette.navy }}>{e.name}</div>
+                    <div style={{ fontSize: 11, color: palette.muted, marginTop: 2 }}>{e.date} · {e.time}</div>
+                  </div>
+                  <span className="badge badge-upcoming">upcoming</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Announcements */}
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-header"><div className="card-title">📢 School Announcements</div></div>
+        <div className="card-body">
+          {recentAnn.length === 0 && <div style={{ color: palette.muted, fontSize: 13 }}>No announcements yet.</div>}
+          {recentAnn.map(a => (
+            <div key={a.id} className={`ann-card ann-category-${a.category}`}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div style={{ fontWeight: 800, fontSize: 13, color: palette.navy }}>{a.title}</div>
+                <div style={{ fontSize: 11, color: palette.muted }}>{a.date}</div>
+              </div>
+              <div style={{ fontSize: 12, color: palette.muted, marginTop: 4 }}>{a.content}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Dashboard({ role, currentUser }) {
+  if (role === "parent") return <ParentDashboard currentUser={currentUser} />;
   const { students: STUDENTS, exams: EXAMS, announcements: ANNOUNCEMENTS, feeConfig,
           selectedYear, setSelectedYear, availableYears } = useAppData();
 
@@ -4166,14 +4371,14 @@ function AppInner() {
               </div>
             </div>
           </div>
-          {page === "dashboard" && <Dashboard role={role} />}
-          {page === "students" && <StudentsPage role={role} />}
-          {page === "fees" && <FeesPage role={role} />}
-          {page === "syllabus" && <SyllabusPage role={role} />}
-          {page === "exams" && <ExamsPage role={role} />}
-          {page === "marks" && <MarksPage role={role} />}
-          {page === "analytics" && <AnalyticsPage role={role} />}  {/* year from context */}
-          {page === "settings" && <SettingsPage role={role} />}
+          {page === "dashboard" && <Dashboard role={role} currentUser={currentUser} />}
+          {page === "students" && <StudentsPage role={role} currentUser={currentUser} />}
+          {page === "fees" && <FeesPage role={role} currentUser={currentUser} />}
+          {page === "syllabus" && <SyllabusPage role={role} currentUser={currentUser} />}
+          {page === "exams" && <ExamsPage role={role} currentUser={currentUser} />}
+          {page === "marks" && <MarksPage role={role} currentUser={currentUser} />}
+          {page === "analytics" && <AnalyticsPage role={role} currentUser={currentUser} />}
+          {page === "settings" && <SettingsPage role={role} currentUser={currentUser} />}
         </main>
       </div>
     </>
