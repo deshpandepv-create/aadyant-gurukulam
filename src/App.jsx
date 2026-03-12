@@ -1,6 +1,12 @@
 import React, { useState, useEffect } from "react";
 
 // ============================================================
+// APP IDENTITY
+// ============================================================
+const APP_VERSION = "0.9.2";
+const THEME_NAME  = "Vidyanjali";   // Sanskrit: "gift of knowledge" 🌸
+
+// ============================================================
 // DESIGN SYSTEM
 // ============================================================
 const palette = {
@@ -1024,7 +1030,7 @@ function LoginScreen({ onLogin, users }) {
           Other users must be created by the admin with a password.
         </div>
         <div style={{ textAlign: "center", marginTop: 10, fontSize: 11, color: palette.border }}>
-          © Deshpande Education Foundation
+          © Deshpande Education Foundation · {THEME_NAME} v{APP_VERSION}
         </div>
       </div>
     </div>
@@ -4142,7 +4148,7 @@ function AppInner() {
               <span className="nav-icon">🚪</span>
               <span>Logout</span>
             </div>
-            <div style={{ padding: "8px 20px 0", fontSize: 10, color: "rgba(255,255,255,0.25)", fontWeight: 700, letterSpacing: 1 }}>v0.9.1</div>
+            <div style={{ padding: "8px 20px 0", fontSize: 10, color: "rgba(255,255,255,0.25)", fontWeight: 700, letterSpacing: 1 }}>{THEME_NAME} · v{APP_VERSION}</div>
           </div>
         </aside>
 
