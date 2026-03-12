@@ -389,6 +389,24 @@ function AppDataProvider({ children }) {
   const setExams    = v => { const nv = typeof v === "function" ? v(exams) : v;    setExamsRaw(nv);    lsSet(LS_KEYS.exams, nv); };
   const setAnnouncements = v => { const nv = typeof v === "function" ? v(announcements) : v; setAnnouncementsRaw(nv); lsSet(LS_KEYS.announcements, nv); };
   const setFeeConfig = v => { const nv = typeof v === "function" ? v(feeConfig) : v; setFeeConfigRaw(nv); lsSet(LS_KEYS.feeConfig, nv); };
+  // Global selected year — always reflects available years from feeConfig
+  const [selectedYear, setSelectedYearRaw] = useState(() => feeConfig?.activeYear || "2024-25");
+  const availableYears = React.useMemo(() => Object.keys(feeConfig?.years || { "2024-25": {} }), [feeConfig]);
+  // Auto-correct selectedYear if it no longer exists (shouldn't happen but safety net)
+  React.useEffect(() => {
+    if (availableYears.length > 0 && !availableYears.includes(selectedYear)) {
+      setSelectedYearRaw(feeConfig?.activeYear || availableYears[0]);
+    }
+  }, [availableYears]);
+  // When a new year is added and saved, auto-switch to it
+  const prevYearsRef = React.useRef(availableYears);
+  React.useEffect(() => {
+    const prev = prevYearsRef.current;
+    const added = availableYears.filter(y => !prev.includes(y));
+    if (added.length > 0) setSelectedYearRaw(added[added.length - 1]);
+    prevYearsRef.current = availableYears;
+  }, [availableYears]);
+  const setSelectedYear = (yr) => setSelectedYearRaw(yr);
   const setStudentOverrides = v => { const nv = typeof v === "function" ? v(studentOverrides) : v; setOverridesRaw(nv); lsSet(LS_KEYS.overrides, nv); };
   const setUsers = v => { const nv = typeof v === "function" ? v(users) : v; setUsersRaw(nv); lsSet(LS_KEYS.users, nv); };
 
@@ -524,7 +542,8 @@ function AppDataProvider({ children }) {
       students, marks, syllabus, exams, announcements, feeConfig, studentOverrides, users,
       setStudents, setMarks, setSyllabus, setExams, setAnnouncements, setFeeConfig, setStudentOverrides, setUsers,
       addStudent, recordPayment, toggleSyllabusTopic, saveMarks, addExam, deleteExam, addAnnouncement, deleteAnnouncement, resetAllData,
-      addUser, updateUser, deleteUser, updateStudentPlan
+      addUser, updateUser, deleteUser, updateStudentPlan,
+      selectedYear, setSelectedYear, availableYears
     }}>
       {children}
     </AppDataContext.Provider>
@@ -1109,7 +1128,12 @@ function Dashboard({ role }) {
 // ---- STUDENTS ----
 
 // ── REUSABLE YEAR SELECTOR ──────────────────────────────────
-function YearSelector({ selectedYear, setSelectedYear, availableYears, feeConfig }) {
+function YearSelector({ selectedYear: propYear, setSelectedYear: propSet, availableYears: propYears, feeConfig: propCfg }) {
+  const ctx = useAppData();
+  const selectedYear = propYear ?? ctx.selectedYear;
+  const setSelectedYear = propSet ?? ctx.setSelectedYear;
+  const availableYears = propYears ?? ctx.availableYears;
+  const feeConfig = propCfg ?? ctx.feeConfig;
   const years = availableYears || Object.keys(feeConfig?.years || { "2024-25": {} });
   const yearLabel = (yk) => feeConfig?.years?.[yk]?.label || yk;
   return (
@@ -1132,8 +1156,8 @@ function YearSelector({ selectedYear, setSelectedYear, availableYears, feeConfig
   );
 }
 
-function StudentsPage({ role, selectedYear, setSelectedYear, availableYears }) {
-  const { students: STUDENTS, marks: MARKS, addStudent, feeConfig } = useAppData();
+function StudentsPage({ role }) {
+  const { students: STUDENTS, marks: MARKS, addStudent, feeConfig, selectedYear, setSelectedYear, availableYears } = useAppData();
   const [search, setSearch] = useState("");
   const [classFilter, setClassFilter] = useState("All");
   const [feeFilter, setFeeFilter] = useState("All");
@@ -1466,8 +1490,8 @@ function StudentsPage({ role, selectedYear, setSelectedYear, availableYears }) {
 }
 
 // ---- FEES ----
-function FeesPage({ role, selectedYear, setSelectedYear, availableYears }) {
-  const { students: STUDENTS, feeConfig, studentOverrides, setFeeConfig, setStudentOverrides, recordPayment, updateStudentPlan } = useAppData();
+function FeesPage({ role }) {
+  const { students: STUDENTS, feeConfig, studentOverrides, setFeeConfig, setStudentOverrides, recordPayment, updateStudentPlan, selectedYear, setSelectedYear, availableYears } = useAppData();
   const [activeTab, setActiveTab] = useState("overview");
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [showRecord, setShowRecord] = useState(false);
@@ -2096,8 +2120,8 @@ function FeesPage({ role, selectedYear, setSelectedYear, availableYears }) {
 }
 
 // ---- SYLLABUS ----
-function SyllabusPage({ role, selectedYear, setSelectedYear, availableYears }) {
-  const { syllabus: SYLLABUS, toggleSyllabusTopic, feeConfig } = useAppData();
+function SyllabusPage({ role }) {
+  const { syllabus: SYLLABUS, toggleSyllabusTopic, feeConfig, selectedYear, setSelectedYear, availableYears } = useAppData();
   const [selectedClass, setSelectedClass] = useState("UKG");
   const [selectedSubject, setSelectedSubject] = useState("English");
 
@@ -2201,8 +2225,8 @@ function SyllabusPage({ role, selectedYear, setSelectedYear, availableYears }) {
 }
 
 // ---- EXAMS ----
-function ExamsPage({ role, selectedYear, setSelectedYear, availableYears }) {
-  const { exams: EXAMS, addExam, feeConfig } = useAppData();
+function ExamsPage({ role }) {
+  const { exams: EXAMS, addExam, feeConfig, selectedYear, setSelectedYear, availableYears } = useAppData();
   const canEdit = role === "admin" || role === "principal";
   const [showAdd, setShowAdd] = useState(false);
 
@@ -2337,7 +2361,7 @@ function ExamsPage({ role, selectedYear, setSelectedYear, availableYears }) {
 }
 
 // ---- MARKS & PERFORMANCE ----
-function MarksPage({ role, selectedYear, setSelectedYear, availableYears }) {
+function MarksPage({ role }) {
   const { students: STUDENTS, marks: MARKS, saveMarks } = useAppData();
   const [selectedClass, setSelectedClass] = useState("UKG");
   const [selectedStudent, setSelectedStudent] = useState(null);
@@ -3140,6 +3164,7 @@ function UserManagementPanel({ users, students, addUser, updateUser, deleteUser 
 
 // ── FEE CONFIG PANEL ─────────────────────────────────────────────────────────
 function FeeConfigPanel({ feeConfig, setFeeConfig, canEdit, STUDENTS }) {
+  const { setSelectedYear: setGlobalYear } = useAppData();
   const ensureYears = (cfg) => {
     if (cfg.years) return cfg;
     // migrate legacy config to new multi-year structure
@@ -3208,6 +3233,7 @@ function FeeConfigPanel({ feeConfig, setFeeConfig, canEdit, STUDENTS }) {
       lateFinePerMonth: yearData.lateFinePerMonth,
       autoApplyLateFine: yearData.autoApplyLateFine,
     });
+    setGlobalYear(cfg.activeYear);
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   }
@@ -3229,6 +3255,7 @@ function FeeConfigPanel({ feeConfig, setFeeConfig, canEdit, STUDENTS }) {
       },
       activeYear: newYearKey,
     }));
+    setGlobalYear(newYearKey);
     setShowAddYear(false);
     setNewYearKey(""); setNewYearLabel("");
   }
@@ -3795,9 +3822,7 @@ function AppInner() {
   const [role, setRole] = useState("admin");
   const [currentUser, setCurrentUser] = useState(null);
   const [page, setPage] = useState("dashboard");
-  const { feeConfig } = useAppData();
-  const availableYears = Object.keys(feeConfig?.years || { "2024-25": {} });
-  const [selectedYear, setSelectedYear] = useState(() => feeConfig?.activeYear || "2024-25");
+  const { feeConfig, selectedYear, setSelectedYear, availableYears } = useAppData();
 
   const handleLogin = (r, userObj) => { setRole(r); setCurrentUser(userObj); setLoggedIn(true); setPage("dashboard"); };
   if (!loggedIn) return <LoginScreen onLogin={handleLogin} users={users} />;
@@ -3856,11 +3881,11 @@ function AppInner() {
             </div>
           </div>
           {page === "dashboard" && <Dashboard role={role} />}
-          {page === "students" && <StudentsPage role={role} selectedYear={selectedYear} setSelectedYear={setSelectedYear} availableYears={availableYears} />}
-          {page === "fees" && <FeesPage role={role} selectedYear={selectedYear} setSelectedYear={setSelectedYear} availableYears={availableYears} />}
-          {page === "syllabus" && <SyllabusPage role={role} selectedYear={selectedYear} setSelectedYear={setSelectedYear} availableYears={availableYears} />}
-          {page === "exams" && <ExamsPage role={role} selectedYear={selectedYear} setSelectedYear={setSelectedYear} availableYears={availableYears} />}
-          {page === "marks" && <MarksPage role={role} selectedYear={selectedYear} setSelectedYear={setSelectedYear} availableYears={availableYears} />}
+          {page === "students" && <StudentsPage role={role} />}
+          {page === "fees" && <FeesPage role={role} />}
+          {page === "syllabus" && <SyllabusPage role={role} />}
+          {page === "exams" && <ExamsPage role={role} />}
+          {page === "marks" && <MarksPage role={role} />}
           {page === "analytics" && <AnalyticsPage role={role} />}
           {page === "settings" && <SettingsPage role={role} />}
         </main>
