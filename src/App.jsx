@@ -2653,9 +2653,153 @@ function ExamsPage({ role }) {
 }
 
 // ---- MARKS & PERFORMANCE ----
-function MarksPage({ role }) {
+function ParentReportCard({ child, MARKS, selectedYear, feeConfig }) {
+  const yearLabel = feeConfig?.years?.[selectedYear]?.label || selectedYear;
+  const { setSelectedYear, availableYears } = useAppData();
+
+  if (!child) {
+    return (
+      <div className="page">
+        <div className="page-header"><div className="page-title">Report Card 📊</div></div>
+        <div className="card" style={{ textAlign: "center", padding: 48 }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>📋</div>
+          <div style={{ fontWeight: 800, fontSize: 16, color: palette.navy }}>No child linked to your account</div>
+          <div style={{ color: palette.muted, fontSize: 13, marginTop: 8 }}>Contact the school admin to link your child's profile.</div>
+        </div>
+      </div>
+    );
+  }
+
+  const cc = classColors[child.class] || { accent: palette.sky, bg: "#E3F2FD" };
+  const childMarks = MARKS[child.id] || {};
+  const entries = Object.entries(childMarks);
+  const avgScore = entries.length ? Math.round(entries.reduce((s, [, v]) => s + v, 0) / entries.length) : null;
+  const g = avgScore !== null ? grade(avgScore) : { label: "—", color: palette.muted };
+  const scoreCol = avgScore !== null ? scoreColor(avgScore) : palette.muted;
+
+  return (
+    <div className="page">
+      {/* Header */}
+      <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <div className="page-title">Report Card 📊</div>
+          <div className="page-sub">📅 {selectedYear} · {yearLabel}</div>
+        </div>
+        <YearSelector />
+      </div>
+
+      {/* Student identity card */}
+      <div style={{ background: `linear-gradient(135deg, ${cc.accent}, ${cc.accent}BB)`, borderRadius: 16,
+        padding: "20px 28px", marginBottom: 24, color: "white", display: "flex", alignItems: "center",
+        gap: 20, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 60, lineHeight: 1 }}>{child.photo}</div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontFamily: "'Fredoka One', cursive", fontSize: 26 }}>{child.name}</div>
+          <div style={{ fontSize: 13, opacity: 0.85, marginTop: 3 }}>
+            {child.class} · Roll No. {child.rollNo}
+          </div>
+          <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2 }}>Academic Year {selectedYear}</div>
+        </div>
+        {/* Summary badges */}
+        <div style={{ display: "flex", gap: 20 }}>
+          <div style={{ textAlign: "center", background: "rgba(255,255,255,0.15)", borderRadius: 12, padding: "10px 18px" }}>
+            <div style={{ fontFamily: "'Fredoka One', cursive", fontSize: 28 }}>{avgScore !== null ? `${avgScore}%` : "—"}</div>
+            <div style={{ fontSize: 11, opacity: 0.8 }}>Average</div>
+          </div>
+          <div style={{ textAlign: "center", background: "rgba(255,255,255,0.15)", borderRadius: 12, padding: "10px 18px" }}>
+            <div style={{ fontFamily: "'Fredoka One', cursive", fontSize: 28, color: g.color === palette.muted ? "white" : g.color }}>{g.label}</div>
+            <div style={{ fontSize: 11, opacity: 0.8 }}>Grade</div>
+          </div>
+        </div>
+      </div>
+
+      {entries.length === 0 ? (
+        <div className="card" style={{ textAlign: "center", padding: 40 }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>📝</div>
+          <div style={{ fontWeight: 700, color: palette.navy }}>No marks recorded yet for {selectedYear}</div>
+          <div style={{ color: palette.muted, fontSize: 13, marginTop: 6 }}>Marks will appear here once the teacher enters them.</div>
+        </div>
+      ) : (
+        <div className="grid-2">
+          {/* Subject bar chart */}
+          <div className="card">
+            <div className="card-header"><div className="card-title">Subject Performance</div></div>
+            <div className="card-body">
+              {[...entries].sort((a, b) => b[1] - a[1]).map(([subj, score]) => {
+                const col = scoreColor(score);
+                const g = grade(score);
+                return (
+                  <div key={subj} className="perf-subject">
+                    <div className="perf-subj-header">
+                      <span className="perf-subj-name">{subj}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontWeight: 900, fontSize: 13, color: col }}>{score}%</span>
+                        <span style={{ fontWeight: 800, fontSize: 12, color: g.color, background: g.color + "18",
+                          borderRadius: 8, padding: "1px 8px" }}>{g.label}</span>
+                      </div>
+                    </div>
+                    <div className="progress-bar">
+                      <div className="progress-fill" style={{ width: `${score}%`, background: col, transition: "width 0.6s ease" }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Score summary + insights */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div className="card">
+              <div className="card-header"><div className="card-title">Score Summary</div></div>
+              <div className="card-body">
+                {[
+                  { label: "Highest Score", value: `${Math.max(...entries.map(([,v])=>v))}%`, subj: entries.sort((a,b)=>b[1]-a[1])[0]?.[0], col: palette.green },
+                  { label: "Lowest Score",  value: `${Math.min(...entries.map(([,v])=>v))}%`, subj: entries.sort((a,b)=>a[1]-b[1])[0]?.[0], col: palette.coral },
+                  { label: "Class Average", value: avgScore !== null ? `${avgScore}%` : "—", subj: `${entries.length} subjects`, col: palette.sky },
+                  { label: "Overall Grade", value: g.label, subj: avgScore >= 80 ? "Excellent work!" : avgScore >= 60 ? "Good effort!" : "Needs improvement", col: g.color },
+                ].map((item, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+                    padding: "10px 0", borderBottom: i < 3 ? `1px solid ${palette.border}` : "none" }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: palette.navy }}>{item.label}</div>
+                      <div style={{ fontSize: 11, color: palette.muted }}>{item.subj}</div>
+                    </div>
+                    <div style={{ fontWeight: 900, fontSize: 18, color: item.col }}>{item.value}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Teacher's note placeholder */}
+            <div className="card" style={{ background: "#FFF8E1", border: "1px solid #FFD54F" }}>
+              <div className="card-body" style={{ padding: "14px 16px" }}>
+                <div style={{ fontWeight: 800, fontSize: 13, color: "#795548", marginBottom: 4 }}>📌 Note</div>
+                <div style={{ fontSize: 12, color: "#795548", lineHeight: 1.6 }}>
+                  This report reflects marks entered by the class teacher. For a detailed discussion, please attend the Parent-Teacher Meeting.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MarksPage({ role, currentUser }) {
   const { students: STUDENTS, marks: MARKS, saveMarks, selectedYear, setSelectedYear, availableYears, feeConfig } = useAppData();
-  const [selectedClass, setSelectedClass] = useState("UKG");
+
+  // Parents jump straight to their child's report — no class switching
+  if (role === "parent") {
+    const linkedId = currentUser?.linkedStudentId ? Number(currentUser.linkedStudentId) : null;
+    const child = linkedId ? STUDENTS.find(s => s.id === linkedId) : null;
+    return <ParentReportCard child={child} MARKS={MARKS} selectedYear={selectedYear} feeConfig={feeConfig} />;
+  }
+
+  // Teachers see only their assigned class
+  const teacherClass = role === "teacher" && currentUser?.assignedClass ? currentUser.assignedClass : null;
+
+  const [selectedClass, setSelectedClass] = useState(() => teacherClass || "UKG");
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [editMode, setEditMode] = useState(false);
   const [editedMarks, setEditedMarks] = useState({});
@@ -2672,7 +2816,8 @@ function MarksPage({ role }) {
         <YearSelector />
       </div>
 
-      <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
+      {/* Class tabs — hidden for teachers (single class) */}
+      {!teacherClass && <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
         {CLASSES.map(cls => {
           const cc = classColors[cls];
           return (
@@ -2682,7 +2827,7 @@ function MarksPage({ role }) {
             </button>
           );
         })}
-      </div>
+      </div>}
 
       <div className="grid-2">
         <div className="card">
