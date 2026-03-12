@@ -391,7 +391,7 @@ function AppDataProvider({ children }) {
   const setFeeConfig = v => { const nv = typeof v === "function" ? v(feeConfig) : v; setFeeConfigRaw(nv); lsSet(LS_KEYS.feeConfig, nv); };
   // Global selected year — always reflects available years from feeConfig
   const [selectedYear, setSelectedYearRaw] = useState(() => feeConfig?.activeYear || "2024-25");
-  const availableYears = React.useMemo(() => Object.keys(feeConfig?.years || { "2024-25": {} }), [feeConfig]);
+  const availableYears = React.useMemo(() => Object.keys(feeConfig?.years || { "2024-25": {} }).sort(), [feeConfig]);
   // Auto-correct selectedYear if it no longer exists (shouldn't happen but safety net)
   React.useEffect(() => {
     if (availableYears.length > 0 && !availableYears.includes(selectedYear)) {
@@ -1134,7 +1134,7 @@ function YearSelector({ selectedYear: propYear, setSelectedYear: propSet, availa
   const setSelectedYear = propSet ?? ctx.setSelectedYear;
   const availableYears = propYears ?? ctx.availableYears;
   const feeConfig = propCfg ?? ctx.feeConfig;
-  const years = availableYears || Object.keys(feeConfig?.years || { "2024-25": {} });
+  const years = (availableYears || Object.keys(feeConfig?.years || { "2024-25": {} })).slice().sort();
   const yearLabel = (yk) => feeConfig?.years?.[yk]?.label || yk;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -1983,7 +1983,7 @@ function FeesPage({ role }) {
 
       {/* ── PAYMENT PLAN MODAL ── */}
       {showPlanModal && planStudent && canManage && (() => {
-        const years = Object.keys(feeConfig.years || { "2024-25": {} });
+        const years = Object.keys(feeConfig.years || { "2024-25": {} }).sort();
         const [selYear, setSelYear] = [
           planStudent._planYear || selectedYear || feeConfig.activeYear,
           (y) => setPlanStudent(p => ({ ...p, _planYear: y }))
@@ -2362,7 +2362,7 @@ function ExamsPage({ role }) {
 
 // ---- MARKS & PERFORMANCE ----
 function MarksPage({ role }) {
-  const { students: STUDENTS, marks: MARKS, saveMarks } = useAppData();
+  const { students: STUDENTS, marks: MARKS, saveMarks, selectedYear, setSelectedYear, availableYears, feeConfig } = useAppData();
   const [selectedClass, setSelectedClass] = useState("UKG");
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [editMode, setEditMode] = useState(false);
@@ -2372,9 +2372,12 @@ function MarksPage({ role }) {
 
   return (
     <div className="page">
-      <div className="page-header">
-        <div className="page-title">Marks & Performance 📊</div>
-        <div className="page-sub">Detailed academic records and analysis</div>
+      <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <div className="page-title">Marks & Performance 📊</div>
+          <div className="page-sub">📅 {selectedYear} · {feeConfig?.years?.[selectedYear]?.label || "Academic Year"}</div>
+        </div>
+        <YearSelector />
       </div>
 
       <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
@@ -2499,7 +2502,7 @@ function MarksPage({ role }) {
 
 // ---- ANALYTICS ----
 function AnalyticsPage({ role }) {
-  const { students: STUDENTS, marks: MARKS, feeConfig, studentOverrides } = useAppData();
+  const { students: STUDENTS, marks: MARKS, feeConfig, studentOverrides, selectedYear, setSelectedYear, availableYears } = useAppData();
   const classStats = CLASSES.map(cls => {
     const students = STUDENTS.filter(s => s.class === cls);
     const avgScore = students.length
@@ -2513,9 +2516,12 @@ function AnalyticsPage({ role }) {
 
   return (
     <div className="page">
-      <div className="page-header">
-        <div className="page-title">Analytics & Insights 📈</div>
-        <div className="page-sub">School-wide performance overview</div>
+      <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <div className="page-title">Analytics & Insights 📈</div>
+          <div className="page-sub">📅 {selectedYear} · {feeConfig?.years?.[selectedYear]?.label || "Academic Year"}</div>
+        </div>
+        <YearSelector />
       </div>
 
       <div className="grid-2" style={{ marginBottom: 24 }}>
@@ -3296,7 +3302,7 @@ function FeeConfigPanel({ feeConfig, setFeeConfig, canEdit, STUDENTS }) {
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: palette.muted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>Academic Year</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {Object.entries(cfg.years || {}).map(([yk, yd]) => (
+            {Object.entries(cfg.years || {}).sort(([a],[b]) => a.localeCompare(b)).map(([yk, yd]) => (
               <button key={yk} onClick={() => setCfg(p => ({ ...p, activeYear: yk }))}
                 style={{ padding: "8px 18px", borderRadius: 20, border: `2px solid ${yk === activeYear ? palette.navy : palette.border}`,
                   background: yk === activeYear ? palette.navy : "white", color: yk === activeYear ? "white" : palette.navy,
@@ -3902,7 +3908,7 @@ function AppInner() {
           {page === "syllabus" && <SyllabusPage role={role} />}
           {page === "exams" && <ExamsPage role={role} />}
           {page === "marks" && <MarksPage role={role} />}
-          {page === "analytics" && <AnalyticsPage role={role} />}
+          {page === "analytics" && <AnalyticsPage role={role} />}  {/* year from context */}
           {page === "settings" && <SettingsPage role={role} />}
         </main>
       </div>
