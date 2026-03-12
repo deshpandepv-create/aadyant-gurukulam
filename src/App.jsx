@@ -1494,7 +1494,7 @@ function Dashboard({ role, currentUser }) {
 
 // ---- STUDENTS ----
 
-// ── REUSABLE YEAR SELECTOR ──────────────────────────────────
+// ── REUSABLE YEAR SELECTOR — compact dropdown, scales to any number of years ──
 function YearSelector({ selectedYear: propYear, setSelectedYear: propSet, availableYears: propYears, feeConfig: propCfg }) {
   const ctx = useAppData();
   const selectedYear = propYear ?? ctx.selectedYear;
@@ -1502,30 +1502,59 @@ function YearSelector({ selectedYear: propYear, setSelectedYear: propSet, availa
   const availableYears = propYears ?? ctx.availableYears;
   const feeConfig = propCfg ?? ctx.feeConfig;
   const isYearClosed = ctx.isYearClosed || (() => false);
-  const years = (availableYears || Object.keys(feeConfig?.years || { "2024-25": {} })).slice().sort();
+  // Sorted descending so newest year is at top of dropdown
+  const years = (availableYears || Object.keys(feeConfig?.years || { "2024-25": {} })).slice().sort().reverse();
+
+  const closed = isYearClosed(selectedYear);
+  const isActive = selectedYear === feeConfig?.activeYear;
+
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-      <span style={{ fontSize: 11, fontWeight: 800, color: palette.muted, textTransform: "uppercase", letterSpacing: 1 }}>Year:</span>
-      {years.map(yk => {
-        const closed = isYearClosed(yk);
-        const active = selectedYear === yk;
-        return (
-          <button key={yk} onClick={() => setSelectedYear(yk)}
-            title={closed ? `${yk} — Closed (read-only)` : yk}
-            style={{ padding: "5px 14px", borderRadius: 20,
-              border: `2px solid ${active ? (closed ? "#B71C1C" : palette.navy) : closed ? "#FFCDD2" : palette.border}`,
-              background: active ? (closed ? "#B71C1C" : palette.navy) : closed ? "#FFF3F3" : "white",
-              color: active ? "white" : closed ? "#B71C1C" : palette.navy,
-              fontWeight: 700, fontSize: 12, cursor: "pointer", transition: "all 0.15s",
-              display: "flex", alignItems: "center", gap: 5 }}>
-            {closed && <span style={{ fontSize: 10 }}>🔒</span>}
-            {yk}
-            {yk === feeConfig?.activeYear && !active && !closed && (
-              <span style={{ fontSize: 9, opacity: 0.7 }}>●</span>
-            )}
-          </button>
-        );
-      })}
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <span style={{ fontSize: 11, fontWeight: 800, color: palette.muted, textTransform: "uppercase", letterSpacing: 1, whiteSpace: "nowrap" }}>Year:</span>
+      <div style={{ position: "relative" }}>
+        <select
+          value={selectedYear}
+          onChange={e => setSelectedYear(e.target.value)}
+          style={{
+            padding: "6px 32px 6px 12px",
+            borderRadius: 20,
+            border: `2px solid ${closed ? "#B71C1C" : palette.navy}`,
+            background: closed ? "#B71C1C" : palette.navy,
+            color: "white",
+            fontWeight: 800,
+            fontSize: 13,
+            cursor: "pointer",
+            fontFamily: "'Nunito', sans-serif",
+            appearance: "none",
+            WebkitAppearance: "none",
+            outline: "none",
+            minWidth: 100,
+          }}>
+          {years.map(yk => {
+            const yClosed = isYearClosed(yk);
+            const yActive = yk === feeConfig?.activeYear;
+            return (
+              <option key={yk} value={yk}>
+                {yClosed ? "Closed: " : ""}{yk}{yActive && !yClosed ? " (Active)" : ""}
+              </option>
+            );
+          })}
+        </select>
+        <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
+          pointerEvents: "none", color: "white", fontSize: 10 }}>▾</span>
+      </div>
+      {closed && (
+        <span style={{ fontSize: 11, fontWeight: 800, color: "#B71C1C", background: "#FFEBEE",
+          padding: "3px 10px", borderRadius: 12, border: "1.5px solid #FFCDD2", whiteSpace: "nowrap" }}>
+          Closed
+        </span>
+      )}
+      {!closed && isActive && (
+        <span style={{ fontSize: 11, fontWeight: 800, color: "#2E7D32", background: "#E8F5E9",
+          padding: "3px 10px", borderRadius: 12, border: "1.5px solid #A5D6A7", whiteSpace: "nowrap" }}>
+          Active
+        </span>
+      )}
     </div>
   );
 }
