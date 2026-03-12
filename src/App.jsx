@@ -1906,7 +1906,6 @@ function FeesPage({ role, currentUser }) {
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [showRecord, setShowRecord] = useState(false);
   const [recordMonth, setRecordMonth] = useState(null);
-  const [showEnrollModal, setShowEnrollModal] = useState(false);
   const [showPlanModal, setShowPlanModal] = useState(false);
   const [planStudent, setPlanStudent] = useState(null);
   const canManage = (role === "admin" || role === "principal") && !yearLocked;
@@ -1958,7 +1957,7 @@ function FeesPage({ role, currentUser }) {
           <YearSelector />
           {canManage && (
             <>
-              <button className="btn btn-ghost" onClick={() => setShowEnrollModal(true)}>⚙️ Enrollment Config</button>
+
               <button className="btn btn-primary">+ Record Payment</button>
             </>
           )}
@@ -2353,53 +2352,7 @@ function FeesPage({ role, currentUser }) {
       })()}
 
       {/* ENROLLMENT CONFIG MODAL */}
-      {showEnrollModal && canManage && (
-        <div className="modal-overlay" onClick={() => setShowEnrollModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <div className="modal-title">Enrollment & Fee Config ⚙️</div>
-              <button className="close-btn" onClick={() => setShowEnrollModal(false)}>✕</button>
-            </div>
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ fontWeight: 800, fontSize: 13, color: palette.navy, marginBottom: 10 }}>Academic Year Structure</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                {TERMS.map((term, i) => {
-                  const colors = [palette.coral, palette.sky, palette.lavender, palette.green];
-                  return (
-                    <div key={term.id} style={{ padding: 14, borderRadius: 12, background: palette.offwhite, border: `2px solid ${colors[i]}22` }}>
-                      <div style={{ fontWeight: 800, color: colors[i] }}>{term.label}</div>
-                      <div style={{ fontSize: 12, color: palette.muted }}>{term.dates}</div>
-                      <div style={{ fontSize: 12, fontWeight: 700, marginTop: 4 }}>₹{term.months.length * MONTHLY_FEE}/term</div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-            <div className="form-row" style={{ marginBottom: 16 }}>
-              <div className="form-group">
-                <label className="form-label">Monthly Fee (₹)</label>
-                <input className="input" defaultValue={2500} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Registration Fee (₹)</label>
-                <input className="input" defaultValue={1000} />
-              </div>
-            </div>
-            <div style={{ padding: 14, borderRadius: 12, background: "#E8F5E9", marginBottom: 16 }}>
-              <div style={{ fontWeight: 800, fontSize: 12, color: "#388E3C", marginBottom: 6 }}>Payment Mode Options Available</div>
-              {Object.entries(PAYMENT_MODE_LABELS).map(([k, v]) => (
-                <div key={k} style={{ fontSize: 13, fontWeight: 600, color: palette.navy, marginBottom: 4 }}>
-                  {v.icon} <strong>{v.label}</strong> — {k === "monthly" ? "Pay month by month" : k === "termly" ? "Pay once per term (3 months)" : "Pay full year upfront (discount applicable)"}
-                </div>
-              ))}
-            </div>
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button className="btn btn-ghost" onClick={() => setShowEnrollModal(false)}>Close</button>
-              <button className="btn btn-primary" onClick={() => { setFeeConfig({...feeConfig}); setShowEnrollModal(false); alert("✅ Fee configuration saved!"); }}>Save Config</button>
-            </div>
-          </div>
-        </div>
-      )}
+
 
       {/* ── PAYMENT PLAN MODAL ── */}
       {showPlanModal && planStudent && canManage && (() => {
@@ -4266,25 +4219,42 @@ function FeeConfigPanel({ feeConfig, setFeeConfig, canEdit, STUDENTS }) {
       {/* Year selector header */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: palette.muted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>Academic Year</div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {Object.entries(cfg.years || {}).sort(([a],[b]) => a.localeCompare(b)).map(([yk, yd]) => {
-              const closed = isYearClosed(yk);
-              return (
-                <button key={yk} onClick={() => setCfg(p => ({ ...p, activeYear: yk }))}
-                  title={closed ? `${yk} — Closed (read-only)` : yk}
-                  style={{ padding: "8px 18px", borderRadius: 20,
-                    border: `2px solid ${yk === activeYear ? (closed ? "#B71C1C" : palette.navy) : closed ? "#FFCDD2" : palette.border}`,
-                    background: yk === activeYear ? (closed ? "#B71C1C" : palette.navy) : closed ? "#FFF3F3" : "white",
-                    color: yk === activeYear ? "white" : closed ? "#B71C1C" : palette.navy,
-                    fontWeight: 800, fontSize: 14, cursor: "pointer", fontFamily: "Fredoka One, cursive", letterSpacing: 0.5,
-                    display: "flex", alignItems: "center", gap: 6 }}>
-                  {closed && <span style={{ fontSize: 12 }}>🔒</span>}
-                  {yk}
-                  {yk === activeYear && <span style={{ marginLeft: 4, fontSize: 10, opacity: 0.8 }}>({yd.label})</span>}
-                </button>
-              );
-            })}
+          <div style={{ fontSize: 11, fontWeight: 700, color: palette.muted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>Academic Year</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ position: "relative" }}>
+              <select
+                value={activeYear}
+                onChange={e => setCfg(p => ({ ...p, activeYear: e.target.value }))}
+                style={{
+                  padding: "8px 36px 8px 16px",
+                  borderRadius: 20,
+                  border: `2px solid ${isYearClosed(activeYear) ? "#B71C1C" : palette.navy}`,
+                  background: isYearClosed(activeYear) ? "#B71C1C" : palette.navy,
+                  color: "white",
+                  fontWeight: 800,
+                  fontSize: 15,
+                  cursor: "pointer",
+                  fontFamily: "'Nunito', sans-serif",
+                  appearance: "none",
+                  WebkitAppearance: "none",
+                  outline: "none",
+                  minWidth: 110,
+                }}>
+                {Object.entries(cfg.years || {}).sort(([a],[b]) => b.localeCompare(a)).map(([yk, yd]) => {
+                  const closed = isYearClosed(yk);
+                  return (
+                    <option key={yk} value={yk}>
+                      {closed ? "Closed: " : ""}{yk}{closed ? "" : yk === cfg.activeYear ? " (Active)" : ""}
+                    </option>
+                  );
+                })}
+              </select>
+              <span style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: "white", fontSize: 11 }}>▾</span>
+            </div>
+            {isYearClosed(activeYear)
+              ? <span style={{ fontSize: 12, fontWeight: 800, color: "#B71C1C", background: "#FFEBEE", padding: "4px 12px", borderRadius: 12, border: "1.5px solid #FFCDD2" }}>Closed</span>
+              : <span style={{ fontSize: 12, fontWeight: 800, color: "#2E7D32", background: "#E8F5E9", padding: "4px 12px", borderRadius: 12, border: "1.5px solid #A5D6A7" }}>Active</span>
+            }
             {canEdit && (
               <button onClick={() => setShowAddYear(v => !v)}
                 style={{ padding: "8px 14px", borderRadius: 20, border: `2px dashed ${palette.border}`,
@@ -4293,11 +4263,7 @@ function FeeConfigPanel({ feeConfig, setFeeConfig, canEdit, STUDENTS }) {
               </button>
             )}
           </div>
-        </div>
-        <div style={{ padding: "10px 20px", background: "linear-gradient(135deg, #1A2340, #2D4A8C)", borderRadius: 14, color: "white", textAlign: "center", minWidth: 120 }}>
-          <div style={{ fontSize: 28 }}>{isYearClosed(activeYear) ? "🔒" : "📅"}</div>
-          <div style={{ fontSize: 11, opacity: 0.8, fontWeight: 700 }}>{yearData.label}</div>
-          {isYearClosed(activeYear) && <div style={{ fontSize: 10, marginTop: 4, background: "#B71C1C", padding: "2px 8px", borderRadius: 8 }}>CLOSED</div>}
+          <div style={{ fontSize: 12, color: palette.muted, marginTop: 6 }}>{yearData.label}</div>
         </div>
       </div>
 
