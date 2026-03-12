@@ -1778,8 +1778,10 @@ function StudentsPage({ role }) {
 }
 
 // ---- FEES ----
-function FeesPage({ role }) {
-  const { students: STUDENTS, feeConfig, studentOverrides, setFeeConfig, setStudentOverrides, recordPayment, updateStudentPlan, selectedYear, setSelectedYear, availableYears } = useAppData();
+function FeesPage({ role, currentUser }) {
+  const { students: ALL_STUDENTS, feeConfig, studentOverrides, setFeeConfig, setStudentOverrides, recordPayment, updateStudentPlan, selectedYear, setSelectedYear, availableYears } = useAppData();
+  const linkedId = role === "parent" && currentUser?.linkedStudentId ? Number(currentUser.linkedStudentId) : null;
+  const STUDENTS = linkedId ? ALL_STUDENTS.filter(s => s.id === linkedId) : ALL_STUDENTS;
   const [activeTab, setActiveTab] = useState("overview");
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [showRecord, setShowRecord] = useState(false);
@@ -1827,25 +1829,24 @@ function FeesPage({ role }) {
 
   return (
     <div className="page">
-      <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+      <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
         <div>
-          <div className="page-title">Fee Management 💰</div>
+          <div className="page-title">{role === "parent" ? (STUDENTS[0]?.name?.split(" ")[0] || "My Child") + "'s Fees" : "Fee Management 💰"}</div>
           <div className="page-sub">📅 {selectedYear} · {feeConfig?.years?.[selectedYear]?.label || "Academic Year"}</div>
         </div>
-        {canManage && (
-          <div style={{ display: "flex", gap: 10 }}>
-            <button className="btn btn-ghost" onClick={() => setShowEnrollModal(true)}>⚙️ Enrollment Config</button>
-            <button className="btn btn-primary">+ Record Payment</button>
-          </div>
-        )}
-      </div>
-
-      <div style={{ marginBottom: 16 }}>
-        <YearSelector selectedYear={selectedYear} setSelectedYear={setSelectedYear} availableYears={availableYears} feeConfig={feeConfig} />
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <YearSelector />
+          {canManage && (
+            <>
+              <button className="btn btn-ghost" onClick={() => setShowEnrollModal(true)}>⚙️ Enrollment Config</button>
+              <button className="btn btn-primary">+ Record Payment</button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* KPI STRIP */}
-      <div className="stats-grid" style={{ marginBottom: 20 }}>
+      {role !== "parent" && <div className="stats-grid" style={{ marginBottom: 20 }}>
         {[
           { icon: "💵", value: `₹${totalCollected.toLocaleString()}`, label: "Total Collected",   color: palette.green },
           { icon: "📋", value: `₹${(totalExpected - totalCollected).toLocaleString()}`, label: "Balance Due", color: palette.coral },
@@ -1858,7 +1859,7 @@ function FeesPage({ role }) {
             <div className="stat-label">{s.label}</div>
           </div>
         ))}
-      </div>
+      </div>}
 
       {/* TABS */}
       <div className="tabs">
@@ -4277,11 +4278,8 @@ const NAV = {
   ],
   parent: [
     { id: "dashboard", icon: "🏠", label: "Dashboard" },
-    { id: "students", icon: "👦", label: "My Child" },
-    { id: "fees", icon: "💰", label: "Fees" },
-    { id: "syllabus", icon: "📚", label: "Syllabus" },
-    { id: "exams", icon: "📝", label: "Exams" },
-    { id: "marks", icon: "📊", label: "Report Card" },
+    { id: "fees",      icon: "💰", label: "Fees" },
+    { id: "marks",     icon: "📊", label: "Report Card" },
   ],
 };
 
