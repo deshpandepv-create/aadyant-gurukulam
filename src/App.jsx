@@ -360,7 +360,7 @@ const SEED_USERS = [
   { id: 6, name: "Suresh Patel", email: "suresh.p@gmail.com", role: "parent", phone: "9876543211", assignedClass: "", linkedStudentId: 2, active: true, joinDate: "2024-06-01", passwordHash: null },
 ];
 
-const LS_KEYS = { students: "ag_students", marks: "ag_marks", syllabus: "ag_syllabus", exams: "ag_exams", announcements: "ag_announcements", feeConfig: "ag_feeconfig", overrides: "ag_overrides", users: "ag_users" };
+const LS_KEYS = { students: "ag_students", marks: "ag_marks", syllabus: "ag_syllabus", exams: "ag_exams", announcements: "ag_announcements", feeConfig: "ag_feeconfig", overrides: "ag_overrides", users: "ag_users", subjects: "ag_subjects" };
 
 function lsGet(key, seed) {
   try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : seed; }
@@ -382,6 +382,7 @@ function AppDataProvider({ children }) {
   const [feeConfig, setFeeConfigRaw]   = useState(() => lsGet(LS_KEYS.feeConfig, DEFAULT_FEE_CONFIG));
   const [studentOverrides, setOverridesRaw] = useState(() => lsGet(LS_KEYS.overrides, DEFAULT_STUDENT_FEE_OVERRIDES));
   const [users, setUsersRaw] = useState(() => lsGet(LS_KEYS.users, SEED_USERS));
+  const [subjects, setSubjectsRaw] = useState(() => lsGet(LS_KEYS.subjects, SUBJECTS));
 
   const setStudents = v => { const nv = typeof v === "function" ? v(students) : v; setStudentsRaw(nv); lsSet(LS_KEYS.students, nv); };
   const setMarks    = v => { const nv = typeof v === "function" ? v(marks) : v;    setMarksRaw(nv);    lsSet(LS_KEYS.marks, nv); };
@@ -389,6 +390,7 @@ function AppDataProvider({ children }) {
   const setExams    = v => { const nv = typeof v === "function" ? v(exams) : v;    setExamsRaw(nv);    lsSet(LS_KEYS.exams, nv); };
   const setAnnouncements = v => { const nv = typeof v === "function" ? v(announcements) : v; setAnnouncementsRaw(nv); lsSet(LS_KEYS.announcements, nv); };
   const setFeeConfig = v => { const nv = typeof v === "function" ? v(feeConfig) : v; setFeeConfigRaw(nv); lsSet(LS_KEYS.feeConfig, nv); };
+  const setSubjects = v => { const nv = typeof v === "function" ? v(subjects) : v; setSubjectsRaw(nv); lsSet(LS_KEYS.subjects, nv); };
   // Global selected year — always reflects available years from feeConfig
   const [selectedYear, setSelectedYearRaw] = useState(() => feeConfig?.activeYear || "2024-25");
   const availableYears = React.useMemo(() => Object.keys(feeConfig?.years || { "2024-25": {} }).sort(), [feeConfig]);
@@ -534,7 +536,7 @@ function AppDataProvider({ children }) {
     setStudents(SEED_STUDENTS); setMarks(SEED_MARKS); setSyllabus(SEED_SYLLABUS);
     setExams(SEED_EXAMS); setAnnouncements(SEED_ANNOUNCEMENTS);
     setFeeConfig(DEFAULT_FEE_CONFIG); setStudentOverrides(DEFAULT_STUDENT_FEE_OVERRIDES);
-    setUsers(SEED_USERS);
+    setUsers(SEED_USERS); setSubjects(SUBJECTS);
   };
 
   return (
@@ -543,7 +545,8 @@ function AppDataProvider({ children }) {
       setStudents, setMarks, setSyllabus, setExams, setAnnouncements, setFeeConfig, setStudentOverrides, setUsers,
       addStudent, recordPayment, toggleSyllabusTopic, saveMarks, addExam, deleteExam, addAnnouncement, deleteAnnouncement, resetAllData,
       addUser, updateUser, deleteUser, updateStudentPlan,
-      selectedYear, setSelectedYear, availableYears
+      selectedYear, setSelectedYear, availableYears,
+      subjects, setSubjects
     }}>
       {children}
     </AppDataContext.Provider>
@@ -2121,11 +2124,11 @@ function FeesPage({ role }) {
 
 // ---- SYLLABUS ----
 function SyllabusPage({ role }) {
-  const { syllabus: SYLLABUS, toggleSyllabusTopic, feeConfig, selectedYear, setSelectedYear, availableYears } = useAppData();
+  const { syllabus: SYLLABUS, toggleSyllabusTopic, feeConfig, selectedYear, setSelectedYear, availableYears, subjects: SUBJECTS_DATA } = useAppData();
   const [selectedClass, setSelectedClass] = useState("UKG");
   const [selectedSubject, setSelectedSubject] = useState("English");
 
-  const subjects = SUBJECTS[selectedClass] || [];
+  const subjects = (SUBJECTS_DATA || SUBJECTS)[selectedClass] || [];
   const syllabusData = SYLLABUS[selectedClass]?.[selectedSubject] || [];
   const done = syllabusData.filter(t => t.done).length;
   const canEdit = role === "admin" || role === "principal" || role === "teacher";
@@ -2143,7 +2146,7 @@ function SyllabusPage({ role }) {
         {CLASSES.map(cls => {
           const cc = classColors[cls];
           return (
-            <button key={cls} className="btn" onClick={() => { setSelectedClass(cls); setSelectedSubject(SUBJECTS[cls][0]); }}
+            <button key={cls} className="btn" onClick={() => { setSelectedClass(cls); setSelectedSubject(((SUBJECTS_DATA || SUBJECTS)[cls] || [])[0] || ""); }}
               style={{ background: selectedClass === cls ? cc.accent : cc.bg, color: selectedClass === cls ? "white" : cc.accent, border: "none" }}>
               {cls}
             </button>
@@ -3483,8 +3486,183 @@ function FeeConfigPanel({ feeConfig, setFeeConfig, canEdit, STUDENTS }) {
   );
 }
 
+function SubjectsPanel({ subjects, setSubjects, canEdit }) {
+  const [activeClass, setActiveClass] = useState(CLASSES[0]);
+  const [newSubject, setNewSubject] = useState("");
+  const [editingIdx, setEditingIdx] = useState(null);
+  const [editingVal, setEditingVal] = useState("");
+  const inputRef = React.useRef(null);
+
+  const classSubjects = subjects[activeClass] || [];
+
+  function addSubject() {
+    const name = newSubject.trim();
+    if (!name) return;
+    if (classSubjects.includes(name)) { alert("Subject already exists"); return; }
+    setSubjects({ ...subjects, [activeClass]: [...classSubjects, name] });
+    setNewSubject("");
+    setTimeout(() => inputRef.current?.focus(), 50);
+  }
+
+  function removeSubject(idx) {
+    const updated = classSubjects.filter((_, i) => i !== idx);
+    setSubjects({ ...subjects, [activeClass]: updated });
+    if (editingIdx === idx) setEditingIdx(null);
+  }
+
+  function startEdit(idx) {
+    setEditingIdx(idx);
+    setEditingVal(classSubjects[idx]);
+  }
+
+  function saveEdit() {
+    const name = editingVal.trim();
+    if (!name) { setEditingIdx(null); return; }
+    if (classSubjects.some((s, i) => s === name && i !== editingIdx)) { alert("Subject already exists"); return; }
+    const updated = classSubjects.map((s, i) => i === editingIdx ? name : s);
+    setSubjects({ ...subjects, [activeClass]: updated });
+    setEditingIdx(null);
+  }
+
+  function moveSubject(idx, dir) {
+    const updated = [...classSubjects];
+    const swapIdx = idx + dir;
+    if (swapIdx < 0 || swapIdx >= updated.length) return;
+    [updated[idx], updated[swapIdx]] = [updated[swapIdx], updated[idx]];
+    setSubjects({ ...subjects, [activeClass]: updated });
+  }
+
+  const classBadgeColors = { Playgroup: palette.coral, Nursery: palette.green, LKG: palette.sky, UKG: palette.lavender };
+
+  return (
+    <div>
+      {/* Class selector */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 24, flexWrap: "wrap" }}>
+        {CLASSES.map(cls => {
+          const col = classBadgeColors[cls];
+          const active = activeClass === cls;
+          return (
+            <button key={cls} className="btn" onClick={() => { setActiveClass(cls); setEditingIdx(null); setNewSubject(""); }}
+              style={{ background: active ? col : "#f0f0f0", color: active ? "white" : palette.navy, border: "none", fontWeight: 700, fontSize: 13 }}>
+              {cls}
+              <span style={{ marginLeft: 6, background: active ? "rgba(255,255,255,0.25)" : col + "30", color: active ? "white" : col,
+                borderRadius: 10, padding: "1px 7px", fontSize: 11, fontWeight: 800 }}>
+                {(subjects[cls] || []).length}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="grid-2" style={{ alignItems: "start" }}>
+        {/* Subject list */}
+        <div className="card">
+          <div className="card-header">
+            <div className="card-title">📚 {activeClass} Subjects</div>
+            <span style={{ fontSize: 12, color: palette.muted }}>{classSubjects.length} subject{classSubjects.length !== 1 ? "s" : ""}</span>
+          </div>
+          <div className="card-body" style={{ padding: "8px 0" }}>
+            {classSubjects.length === 0 && (
+              <div style={{ textAlign: "center", color: palette.muted, fontSize: 13, padding: "24px 0" }}>
+                No subjects yet. Add one below.
+              </div>
+            )}
+            {classSubjects.map((subj, idx) => (
+              <div key={idx} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 16px",
+                borderBottom: idx < classSubjects.length - 1 ? `1px solid ${palette.border}` : "none",
+                background: editingIdx === idx ? palette.offwhite : "transparent" }}>
+                {/* Reorder arrows */}
+                {canEdit && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                    <button onClick={() => moveSubject(idx, -1)} disabled={idx === 0}
+                      style={{ background: "none", border: "none", cursor: idx === 0 ? "default" : "pointer", fontSize: 11, color: idx === 0 ? palette.border : palette.muted, padding: "1px 3px", lineHeight: 1 }}>▲</button>
+                    <button onClick={() => moveSubject(idx, 1)} disabled={idx === classSubjects.length - 1}
+                      style={{ background: "none", border: "none", cursor: idx === classSubjects.length - 1 ? "default" : "pointer", fontSize: 11, color: idx === classSubjects.length - 1 ? palette.border : palette.muted, padding: "1px 3px", lineHeight: 1 }}>▼</button>
+                  </div>
+                )}
+
+                {/* Subject name or edit field */}
+                <div style={{ flex: 1 }}>
+                  {editingIdx === idx ? (
+                    <input className="input" value={editingVal} autoFocus
+                      onChange={e => setEditingVal(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") saveEdit(); if (e.key === "Escape") setEditingIdx(null); }}
+                      style={{ padding: "4px 8px", fontSize: 13, width: "100%" }} />
+                  ) : (
+                    <span style={{ fontWeight: 600, fontSize: 13, color: palette.navy }}>{subj}</span>
+                  )}
+                </div>
+
+                {/* Action buttons */}
+                {canEdit && (
+                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                    {editingIdx === idx ? (
+                      <>
+                        <button className="btn btn-primary btn-sm" onClick={saveEdit} style={{ fontSize: 11, padding: "3px 10px" }}>Save</button>
+                        <button className="btn btn-sm" onClick={() => setEditingIdx(null)} style={{ fontSize: 11, padding: "3px 10px" }}>Cancel</button>
+                      </>
+                    ) : (
+                      <>
+                        <button className="btn btn-sm" onClick={() => startEdit(idx)}
+                          style={{ fontSize: 11, padding: "3px 10px", color: palette.sky, borderColor: palette.sky }}>✏️ Edit</button>
+                        <button className="btn btn-sm" onClick={() => removeSubject(idx)}
+                          style={{ fontSize: 11, padding: "3px 10px", color: palette.coral, borderColor: palette.coral }}>🗑️</button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Add subject input */}
+          {canEdit && (
+            <div style={{ padding: "12px 16px", borderTop: `1px solid ${palette.border}`, display: "flex", gap: 8 }}>
+              <input ref={inputRef} className="input" placeholder={`Add subject for ${activeClass}…`}
+                value={newSubject} onChange={e => setNewSubject(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") addSubject(); }}
+                style={{ flex: 1, fontSize: 13 }} />
+              <button className="btn btn-primary btn-sm" onClick={addSubject} disabled={!newSubject.trim()}
+                style={{ whiteSpace: "nowrap" }}>+ Add</button>
+            </div>
+          )}
+        </div>
+
+        {/* Info / summary card */}
+        <div className="card">
+          <div className="card-header"><div className="card-title">All Classes Summary</div></div>
+          <div className="card-body">
+            {CLASSES.map(cls => {
+              const col = classBadgeColors[cls];
+              const subs = subjects[cls] || [];
+              return (
+                <div key={cls} style={{ marginBottom: 18 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <span style={{ fontWeight: 700, fontSize: 13, color: col }}>{cls}</span>
+                    <span style={{ fontSize: 11, color: palette.muted }}>{subs.length} subjects</span>
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                    {subs.map(s => (
+                      <span key={s} style={{ background: col + "18", color: col, border: `1px solid ${col}40`,
+                        borderRadius: 12, padding: "2px 10px", fontSize: 11, fontWeight: 600 }}>{s}</span>
+                    ))}
+                    {subs.length === 0 && <span style={{ fontSize: 12, color: palette.muted, fontStyle: "italic" }}>No subjects defined</span>}
+                  </div>
+                </div>
+              );
+            })}
+            <div style={{ marginTop: 12, padding: "10px 12px", background: "#FFF8E1", borderRadius: 8, fontSize: 11, color: "#795548", lineHeight: 1.6 }}>
+              💡 <strong>Tip:</strong> Subjects defined here appear in the Syllabus Tracker and Marks & Performance pages. Changes take effect immediately.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SettingsPage({ role }) {
-  const { feeConfig, setFeeConfig, studentOverrides, setStudentOverrides, students: STUDENTS, resetAllData, users, addUser, updateUser, deleteUser, announcements: ANNOUNCEMENTS, addAnnouncement, deleteAnnouncement, exams: EXAMS, addExam, deleteExam } = useAppData();
+  const { feeConfig, setFeeConfig, studentOverrides, setStudentOverrides, students: STUDENTS, resetAllData, users, addUser, updateUser, deleteUser, announcements: ANNOUNCEMENTS, addAnnouncement, deleteAnnouncement, exams: EXAMS, addExam, deleteExam, subjects: SUBJECTS_DATA, setSubjects } = useAppData();
   const [settingsTab, setSettingsTab] = useState("school");
   const canManageContent = role === "admin" || role === "principal" || role === "teacher";
   const [overrideStudent, setOverrideStudent] = useState(null);
@@ -3550,6 +3728,7 @@ function SettingsPage({ role }) {
           { id: "school", label: "🏫 School Profile" },
           { id: "fees", label: "💰 Fee Config" },
           { id: "overrides", label: "👤 Student Overrides" },
+          { id: "subjects", label: "📚 Subjects" },
           ...(canManageContent ? [
             { id: "announcements", label: "📢 Announcements" },
             { id: "examschedule", label: "📝 Exam Schedule" },
@@ -3683,6 +3862,11 @@ function SettingsPage({ role }) {
 
       {settingsTab === "examschedule" && canManageContent && (
         <ExamSchedulePanel exams={EXAMS} addExam={addExam} deleteExam={deleteExam} role={role} />
+      )}
+
+
+      {settingsTab === "subjects" && (
+        <SubjectsPanel subjects={SUBJECTS_DATA || SUBJECTS} setSubjects={setSubjects} canEdit={canEdit} />
       )}
 
       {settingsTab === "users" && role === "admin" && (
