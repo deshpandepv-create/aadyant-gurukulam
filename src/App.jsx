@@ -1444,10 +1444,13 @@ function YearSelector({ selectedYear: propYear, setSelectedYear: propSet, availa
   );
 }
 
-function StudentsPage({ role }) {
-  const { students: STUDENTS, marks: MARKS, addStudent, feeConfig, selectedYear, setSelectedYear, availableYears } = useAppData();
+function StudentsPage({ role, currentUser }) {
+  const { students: ALL_STUDENTS, marks: MARKS, addStudent, feeConfig, selectedYear, setSelectedYear, availableYears } = useAppData();
+  // Teachers see only their assigned class; admin/principal see all
+  const teacherClass = role === "teacher" && currentUser?.assignedClass ? currentUser.assignedClass : null;
+  const STUDENTS = teacherClass ? ALL_STUDENTS.filter(s => s.class === teacherClass) : ALL_STUDENTS;
   const [search, setSearch] = useState("");
-  const [classFilter, setClassFilter] = useState("All");
+  const [classFilter, setClassFilter] = useState(() => teacherClass || "All");
   const [feeFilter, setFeeFilter] = useState("All");
   const [selected, setSelected] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
@@ -3523,20 +3526,29 @@ function FeeConfigPanel({ feeConfig, setFeeConfig, canEdit, STUDENTS }) {
     }));
   }
 
+  // Keep a ref so saveConfig always reads latest cfg (avoids stale closure)
+  const cfgRef = React.useRef(cfg);
+  React.useEffect(() => { cfgRef.current = cfg; }, [cfg]);
+
   function saveConfig() {
-    // also keep legacy fields in sync for backward compat
+    const latestCfg = cfgRef.current;
+    const latestYear = latestCfg.activeYear;
+    const latestYearData = latestCfg.years?.[latestYear] || {};
+    const latestFeeStructure = latestYearData.feeStructure || {};
     const legacyClassMonthlyFee = CLASSES.reduce((acc, cls) => {
-      acc[cls] = feeStructure[cls]?.monthly || 2000;
+      acc[cls] = latestFeeStructure[cls]?.monthly || 2000;
       return acc;
     }, {});
-    setFeeConfig({
-      ...cfg,
+    const saved = {
+      ...latestCfg,
       classMonthlyFee: legacyClassMonthlyFee,
-      registrationFee: yearData.registrationFee,
-      lateFinePerMonth: yearData.lateFinePerMonth,
-      autoApplyLateFine: yearData.autoApplyLateFine,
-    });
-    setGlobalYear(cfg.activeYear);
+      registrationFee: latestYearData.registrationFee,
+      lateFinePerMonth: latestYearData.lateFinePerMonth,
+      autoApplyLateFine: latestYearData.autoApplyLateFine,
+    };
+    setCfg(saved);
+    setFeeConfig(saved);
+    setGlobalYear(latestCfg.activeYear);
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   }
@@ -4047,16 +4059,52 @@ function SettingsPage({ role }) {
             </div>
           </div>
           <div className="card">
-            <div className="card-header"><div className="card-title">Classes</div></div>
+            <div className="card-header"><div className="card-title">Classes & Class Teachers</div></div>
             <div className="card-body">
               {CLASSES.map(cls => {
                 const cc = classColors[cls];
+                const teachers = users.filter(u => u.role === "teacher" && u.active);
+                const assignedTeacher = teachers.find(u => u.assignedClass === cls);
                 return (
-                  <div key={cls} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderBottom: `1px solid ${palette.border}` }}>
-                    <span style={{ fontWeight: 800 }}>{cls}</span>
-                    <span style={{ fontSize: 12, color: palette.muted }}>{STUDENTS.filter(s => s.class === cls).length} students</span>
-                    <span style={{ fontWeight: 700, color: palette.green }}>₹{((feeConfig.years?.[feeConfig.activeYear]?.feeStructure?.[cls]?.monthly) ?? feeConfig.classMonthlyFee?.[cls] ?? 0).toLocaleString()}/mo</span>
-                    <span className="class-pill" style={{ background: cc.bg, color: cc.accent }}>Active</span>
+                  <div key={cls} style={{ padding: "14px 0", borderBottom: `1px solid ${palette.border}` }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span className="class-pill" style={{ background: cc.bg, color: cc.accent, fontSize: 13, fontWeight: 800 }}>{cls}</span>
+                        <span style={{ fontSize: 12, color: palette.muted }}>{STUDENTS.filter(s => s.class === cls).length} students</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: palette.green }}>₹{((feeConfig.years?.[feeConfig.activeYear]?.feeStructure?.[cls]?.monthly) ?? feeConfig.classMonthlyFee?.[cls] ?? 0).toLocaleString()}/mo</span>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ fontSize: 12, color: palette.muted, minWidth: 90 }}>Class Teacher:</span>
+                      {canEdit ? (
+                        <select className="input" style={{ flex: 1, fontSize: 12, padding: "4px 8px" }}
+                          value={assignedTeacher?.id || ""}
+                          onChange={e => {
+                            const newTeacherId = e.target.value ? Number(e.target.value) : null;
+                            // Unassign previous teacher of this class, assign new one
+                            const updatedUsers = users.map(u => {
+                              if (u.assignedClass === cls && u.role === "teacher") return { ...u, assignedClass: "" };
+                              if (newTeacherId && u.id === newTeacherId) return { ...u, assignedClass: cls };
+                              return u;
+                            });
+                            updateUser && updatedUsers.forEach(u => {
+                              const orig = users.find(x => x.id === u.id);
+                              if (orig && orig.assignedClass !== u.assignedClass) updateUser(u.id, u);
+                            });
+                          }}>
+                          <option value="">— Unassigned —</option>
+                          {teachers.map(t => (
+                            <option key={t.id} value={t.id} disabled={t.assignedClass && t.assignedClass !== cls}>
+                              {t.name}{t.assignedClass && t.assignedClass !== cls ? ` (${t.assignedClass})` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span style={{ fontSize: 13, fontWeight: 700, color: assignedTeacher ? palette.navy : palette.muted }}>
+                          {assignedTeacher ? assignedTeacher.name : "Not assigned"}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 );
               })}
