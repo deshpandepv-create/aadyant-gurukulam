@@ -1033,31 +1033,103 @@ function LoginScreen({ onLogin, users }) {
 
 // ---- DASHBOARD ----
 function Dashboard({ role }) {
-  const { students: STUDENTS, exams: EXAMS, announcements: ANNOUNCEMENTS } = useAppData();
-  const totalStudents = STUDENTS.length;
-  const paidFees = STUDENTS.filter(s => studentFeeStatus(s) === "paid").length;
-  const totalCollectedAmt = STUDENTS.reduce((sum, s) =>
-    sum + Object.values(s.payments).filter(p => p.status === "paid").reduce((a, p) => a + p.amount, 0), 0);
-  const upcomingExams = EXAMS.filter(e => e.status === "upcoming").length;
+  const { students: STUDENTS, exams: EXAMS, announcements: ANNOUNCEMENTS, feeConfig,
+          selectedYear, setSelectedYear, availableYears } = useAppData();
+
+  // ── Year window: Jun of yearStart → May of yearEnd ──
+  const yearStart = selectedYear ? parseInt(selectedYear.split("-")[0]) : new Date().getFullYear();
+  const yearEnd   = yearStart + 1;
+  const yearLabel = feeConfig?.years?.[selectedYear]?.label || selectedYear;
+
+  // Students enrolled in this academic year
+  const yearStudents = STUDENTS.filter(s => {
+    if (!s.admissionDate) return true;
+    const [admYear, admMonth] = s.admissionDate.split("-").map(Number);
+    const inYear = (admYear === yearStart && admMonth >= 6) || (admYear === yearEnd && admMonth <= 5);
+    const continuing = admYear < yearStart || (admYear === yearStart && admMonth < 6);
+    return inYear || continuing;
+  });
+
+  // Payments only for months in this year (Jun yearStart – Mar yearEnd)
+  const yearMonths = (() => {
+    const months = [];
+    const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    for (let m = 6; m <= 12; m++) months.push(`${MONTH_NAMES[m-1]}-${yearStart}`);
+    for (let m = 1; m <= 3; m++) months.push(`${MONTH_NAMES[m-1]}-${yearEnd}`);
+    return months;
+  })();
+
+  const totalCollectedAmt = yearStudents.reduce((sum, s) =>
+    sum + Object.entries(s.payments || {})
+      .filter(([k, p]) => yearMonths.some(ym => k.startsWith(ym.split("-")[0])) && p.status === "paid")
+      .reduce((a, [, p]) => a + p.amount, 0), 0);
+
+  const paidCount  = yearStudents.filter(s => studentFeeStatus(s) === "paid").length;
+  const feePct     = yearStudents.length ? Math.round((paidCount / yearStudents.length) * 100) : 0;
+
+  // Exams in this academic year
+  const yearExams = EXAMS.filter(e => {
+    if (!e.date) return false;
+    const [eYear, eMonth] = e.date.split("-").map(Number);
+    return (eYear === yearStart && eMonth >= 6) || (eYear === yearEnd && eMonth <= 5);
+  });
+  const upcomingExams = yearExams.filter(e => e.status === "upcoming");
+  const nextExam = upcomingExams.sort((a, b) => a.date.localeCompare(b.date))[0];
 
   const classCount = {};
-  CLASSES.forEach(c => { classCount[c] = STUDENTS.filter(s => s.class === c).length; });
+  CLASSES.forEach(c => { classCount[c] = yearStudents.filter(s => s.class === c).length; });
+
+  const icons = { Playgroup: "🎪", Nursery: "🌱", LKG: "📚", UKG: "🎓" };
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good Morning! 🌅" : hour < 17 ? "Good Afternoon! ☀️" : "Good Evening! 🌙";
 
   return (
     <div className="page">
-      <div className="page-header">
-        <div className="page-title">Good Morning! 🌟</div>
-        <div className="page-sub">Here's what's happening at Aadyant Gurukulam today</div>
+      <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <div className="page-title">{greeting}</div>
+          <div className="page-sub">Here's what's happening at Aadyant Gurukulam today</div>
+        </div>
+        <YearSelector />
+      </div>
+
+      {/* Year banner */}
+      <div style={{ background: "linear-gradient(135deg, #1A2340 0%, #2D3A6B 100%)", color: "white",
+        borderRadius: 12, padding: "12px 20px", marginBottom: 20, display: "flex", alignItems: "center",
+        justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 20 }}>📅</span>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 14 }}>Academic Year {selectedYear}</div>
+            <div style={{ fontSize: 12, opacity: 0.75 }}>{yearLabel}</div>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 20 }}>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontWeight: 800, fontSize: 18 }}>{yearStudents.length}</div>
+            <div style={{ fontSize: 11, opacity: 0.7 }}>Students</div>
+          </div>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontWeight: 800, fontSize: 18 }}>{yearExams.length}</div>
+            <div style={{ fontSize: 11, opacity: 0.7 }}>Exams</div>
+          </div>
+          {role !== "teacher" && (
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontWeight: 800, fontSize: 18 }}>₹{(totalCollectedAmt/1000).toFixed(0)}k</div>
+              <div style={{ fontSize: 11, opacity: 0.7 }}>Collected</div>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="stats-grid">
         {[
-          { icon: "👦", value: totalStudents, label: "Total Students", change: "+2 this month", up: true, color: palette.sky },
+          { icon: "👦", value: yearStudents.length, label: "Students Enrolled", change: `${CLASSES.filter(c => classCount[c] > 0).length} classes active`, up: true, color: palette.sky },
           ...(role !== "teacher"
-            ? [{ icon: "💰", value: `${Math.round((paidFees / totalStudents) * 100)}%`, label: "Fee Collection", change: `₹${totalCollectedAmt.toLocaleString()} collected`, up: true, color: palette.green }]
+            ? [{ icon: "💰", value: `${feePct}%`, label: "Fee Collection", change: `₹${totalCollectedAmt.toLocaleString()} collected`, up: feePct >= 50, color: palette.green }]
             : [{ icon: "📚", value: "60%", label: "Syllabus Coverage", change: "Across all classes", color: palette.green }]),
-          { icon: "📝", value: upcomingExams, label: "Upcoming Exams", change: "Next: Apr 10", color: palette.lavender },
-          { icon: "📢", value: ANNOUNCEMENTS.length, label: "Announcements", change: "2 new today", color: palette.coral },
+          { icon: "📝", value: upcomingExams.length, label: "Upcoming Exams", change: nextExam ? `Next: ${nextExam.date}` : "No upcoming exams", color: palette.lavender },
+          { icon: "📢", value: ANNOUNCEMENTS.length, label: "Announcements", change: "School notices", color: palette.coral },
         ].map((s, i) => (
           <div className="stat-card" key={i} style={{ borderTop: `4px solid ${s.color}` }}>
             <div className="stat-icon">{s.icon}</div>
@@ -1072,15 +1144,15 @@ function Dashboard({ role }) {
         {CLASSES.map(cls => {
           const cc = classColors[cls];
           const count = classCount[cls];
-          const icons = { Playgroup: "🎪", Nursery: "🌱", LKG: "📚", UKG: "🎓" };
+          const maxInClass = Math.max(...CLASSES.map(c => classCount[c]), 1);
           return (
             <div className="class-card" key={cls} style={{ background: cc.bg, color: cc.accent }}>
               <div className="class-card-icon">{icons[cls]}</div>
               <div className="class-card-name">{cls}</div>
-              <div className="class-card-count">{count} students enrolled</div>
+              <div className="class-card-count">{count} student{count !== 1 ? "s" : ""} enrolled</div>
               <div style={{ marginTop: 12 }}>
                 <div className="progress-bar">
-                  <div className="progress-fill" style={{ width: `${(count / 4) * 100}%`, background: cc.accent }} />
+                  <div className="progress-fill" style={{ width: `${maxInClass ? (count / maxInClass) * 100 : 0}%`, background: cc.accent }} />
                 </div>
               </div>
             </div>
@@ -1095,6 +1167,7 @@ function Dashboard({ role }) {
             <button className="btn btn-ghost btn-sm">View All</button>
           </div>
           <div className="card-body">
+            {ANNOUNCEMENTS.length === 0 && <div style={{ color: palette.muted, fontSize: 13 }}>No announcements yet.</div>}
             {ANNOUNCEMENTS.map(a => (
               <div key={a.id} className={`ann-card ann-category-${a.category}`}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -1109,10 +1182,11 @@ function Dashboard({ role }) {
 
         <div className="card">
           <div className="card-header">
-            <div className="card-title">📅 Exam Schedule</div>
+            <div className="card-title">📅 Exams — {selectedYear}</div>
           </div>
           <div className="card-body">
-            {EXAMS.map(e => (
+            {yearExams.length === 0 && <div style={{ color: palette.muted, fontSize: 13 }}>No exams scheduled for this year.</div>}
+            {yearExams.sort((a,b) => a.date.localeCompare(b.date)).map(e => (
               <div key={e.id} style={{ padding: "12px 0", borderBottom: `1px solid ${palette.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
                   <div style={{ fontWeight: 800, fontSize: 13, color: palette.navy }}>{e.name}</div>
