@@ -3190,6 +3190,14 @@ function FeeConfigPanel({ feeConfig, setFeeConfig, canEdit, STUDENTS }) {
   const [cfg, setCfg] = useState(() => ensureYears({ ...feeConfig }));
   const [saved, setSaved] = useState(false);
   const [showAddYear, setShowAddYear] = useState(false);
+  // Auto-suggest next year based on existing years
+  const nextYearDefault = React.useMemo(() => {
+    const existingYears = Object.keys(cfg.years || {});
+    const maxStart = Math.max(...existingYears.map(y => parseInt(y.split("-")[0])), 2024);
+    const ns = maxStart + 1;
+    const ne = ns + 1;
+    return { key: `${ns}-${String(ne).slice(2)}`, label: `June ${ns} – March ${ne}` };
+  }, [cfg.years]);
   const [newYearKey, setNewYearKey] = useState("");
   const [newYearLabel, setNewYearLabel] = useState("");
 
@@ -3239,23 +3247,31 @@ function FeeConfigPanel({ feeConfig, setFeeConfig, canEdit, STUDENTS }) {
   }
 
   function addYear() {
-    if (!newYearKey || !newYearLabel) return;
-    // Copy feeStructure from active year as starting point
-    setCfg(prev => ({
-      ...prev,
+    const yearKey = newYearKey.trim() || nextYearDefault.key;
+    const yearLabel = newYearLabel.trim() || nextYearDefault.label;
+    if (!yearKey || !yearLabel) return;
+    const newCfg = {
+      ...cfg,
       years: {
-        ...prev.years,
-        [newYearKey]: {
-          label: newYearLabel,
+        ...cfg.years,
+        [yearKey]: {
+          label: yearLabel,
           registrationFee: yearData.registrationFee || 1000,
           lateFinePerMonth: yearData.lateFinePerMonth || 100,
           autoApplyLateFine: true,
           feeStructure: JSON.parse(JSON.stringify(feeStructure)),
         }
       },
-      activeYear: newYearKey,
-    }));
-    setGlobalYear(newYearKey);
+      activeYear: yearKey,
+    };
+    // Update both local state and global context immediately
+    setCfg(newCfg);
+    const legacy = CLASSES.reduce((acc, cls) => {
+      acc[cls] = newCfg.years[yearKey].feeStructure[cls]?.monthly || 2000;
+      return acc;
+    }, {});
+    setFeeConfig({ ...newCfg, classMonthlyFee: legacy });
+    setGlobalYear(yearKey);
     setShowAddYear(false);
     setNewYearKey(""); setNewYearLabel("");
   }
@@ -3312,11 +3328,11 @@ function FeeConfigPanel({ feeConfig, setFeeConfig, canEdit, STUDENTS }) {
             <div className="grid-2">
               <div className="form-group">
                 <label className="form-label">Year Key (e.g. 2025-26)</label>
-                <input className="input" placeholder="2025-26" value={newYearKey} onChange={e => setNewYearKey(e.target.value)} />
+                <input className="input" placeholder={nextYearDefault.key} value={newYearKey} onChange={e => setNewYearKey(e.target.value)} />
               </div>
               <div className="form-group">
                 <label className="form-label">Label (e.g. June 2025 – March 2026)</label>
-                <input className="input" placeholder="June 2025 – March 2026" value={newYearLabel} onChange={e => setNewYearLabel(e.target.value)} />
+                <input className="input" placeholder={nextYearDefault.label} value={newYearLabel} onChange={e => setNewYearLabel(e.target.value)} />
               </div>
             </div>
             <div style={{ fontSize: 12, color: palette.muted, marginBottom: 12 }}>
