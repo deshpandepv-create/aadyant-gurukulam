@@ -366,7 +366,15 @@ const SEED_USERS = [
   { id: 6, name: "Suresh Patel", email: "suresh.p@gmail.com", role: "parent", phone: "9876543211", assignedClass: "", linkedStudentId: 2, active: true, joinDate: "2024-06-01", passwordHash: null },
 ];
 
-const LS_KEYS = { students: "ag_students", marks: "ag_marks", syllabus: "ag_syllabus", exams: "ag_exams", announcements: "ag_announcements", feeConfig: "ag_feeconfig", overrides: "ag_overrides", users: "ag_users", subjects: "ag_subjects" };
+const LS_KEYS = { students: "ag_students", marks: "ag_marks", syllabus: "ag_syllabus", exams: "ag_exams", announcements: "ag_announcements", feeConfig: "ag_feeconfig", overrides: "ag_overrides", users: "ag_users", subjects: "ag_subjects", school: "ag_school" };
+const DEFAULT_SCHOOL_PROFILE = {
+  name: "Aadyant Gurukulam",
+  managedBy: "Deshpande Education Foundation",
+  address: "123 Main Street, Bengaluru",
+  phone: "+91 80 1234 5678",
+  email: "info@aadyantgurukulam.edu.in",
+  principal: "Mrs. Sunita Rao",
+};
 
 function lsGet(key, seed) {
   try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : seed; }
@@ -389,6 +397,7 @@ function AppDataProvider({ children }) {
   const [studentOverrides, setOverridesRaw] = useState(() => lsGet(LS_KEYS.overrides, DEFAULT_STUDENT_FEE_OVERRIDES));
   const [users, setUsersRaw] = useState(() => lsGet(LS_KEYS.users, SEED_USERS));
   const [subjects, setSubjectsRaw] = useState(() => lsGet(LS_KEYS.subjects, SUBJECTS));
+  const [schoolProfile, setSchoolProfileRaw] = useState(() => lsGet(LS_KEYS.school, DEFAULT_SCHOOL_PROFILE));
 
   const setStudents = v => { const nv = typeof v === "function" ? v(students) : v; setStudentsRaw(nv); lsSet(LS_KEYS.students, nv); };
   const setMarks    = v => { const nv = typeof v === "function" ? v(marks) : v;    setMarksRaw(nv);    lsSet(LS_KEYS.marks, nv); };
@@ -397,6 +406,7 @@ function AppDataProvider({ children }) {
   const setAnnouncements = v => { const nv = typeof v === "function" ? v(announcements) : v; setAnnouncementsRaw(nv); lsSet(LS_KEYS.announcements, nv); };
   const setFeeConfig = v => { const nv = typeof v === "function" ? v(feeConfig) : v; setFeeConfigRaw(nv); lsSet(LS_KEYS.feeConfig, nv); };
   const setSubjects = v => { const nv = typeof v === "function" ? v(subjects) : v; setSubjectsRaw(nv); lsSet(LS_KEYS.subjects, nv); };
+  const setSchoolProfile = v => { const nv = typeof v === "function" ? v(schoolProfile) : v; setSchoolProfileRaw(nv); lsSet(LS_KEYS.school, nv); };
   // Global selected year — always reflects available years from feeConfig
   const [selectedYear, setSelectedYearRaw] = useState(() => feeConfig?.activeYear || "2024-25");
   const availableYears = React.useMemo(() => Object.keys(feeConfig?.years || { "2024-25": {} }).sort(), [feeConfig]);
@@ -552,7 +562,8 @@ function AppDataProvider({ children }) {
       addStudent, recordPayment, toggleSyllabusTopic, saveMarks, addExam, deleteExam, addAnnouncement, deleteAnnouncement, resetAllData,
       addUser, updateUser, deleteUser, updateStudentPlan,
       selectedYear, setSelectedYear, availableYears,
-      subjects, setSubjects
+      subjects, setSubjects,
+      schoolProfile, setSchoolProfile
     }}>
       {children}
     </AppDataContext.Provider>
@@ -4174,8 +4185,57 @@ function SubjectsPanel({ subjects, setSubjects, canEdit }) {
   );
 }
 
+function SchoolProfileCard({ schoolProfile, setSchoolProfile, canEdit }) {
+  const FIELDS = [
+    { key: "name",      label: "School Name",   placeholder: "e.g. Aadyant Gurukulam" },
+    { key: "managedBy", label: "Managed By",    placeholder: "e.g. Deshpande Education Foundation" },
+    { key: "address",   label: "Address",       placeholder: "e.g. 123 Main Street, Bengaluru" },
+    { key: "phone",     label: "Phone",         placeholder: "e.g. +91 80 1234 5678" },
+    { key: "email",     label: "Email",         placeholder: "e.g. info@school.edu.in" },
+    { key: "principal", label: "Principal",     placeholder: "e.g. Mrs. Sunita Rao" },
+  ];
+  const [form, setForm] = React.useState({ ...DEFAULT_SCHOOL_PROFILE, ...schoolProfile });
+  const [saved, setSaved] = React.useState(false);
+
+  // Keep form in sync if schoolProfile changes externally
+  React.useEffect(() => { setForm({ ...DEFAULT_SCHOOL_PROFILE, ...schoolProfile }); }, [JSON.stringify(schoolProfile)]);
+
+  function handleSave() {
+    setSchoolProfile({ ...form });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  }
+
+  return (
+    <div className="card">
+      <div className="card-header"><div className="card-title">School Profile</div></div>
+      <div className="card-body">
+        {saved && (
+          <div style={{ padding: "10px 14px", background: "#E8F5E9", borderRadius: 10, marginBottom: 16, fontWeight: 700, fontSize: 13, color: "#388E3C" }}>
+            ✅ School profile saved!
+          </div>
+        )}
+        {FIELDS.map(f => (
+          <div className="form-group" key={f.key}>
+            <label className="form-label">{f.label}</label>
+            <input className="input" placeholder={f.placeholder}
+              value={form[f.key] || ""}
+              disabled={!canEdit}
+              onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))} />
+          </div>
+        ))}
+        {canEdit && (
+          <button className="btn btn-primary" onClick={handleSave}>
+            💾 Save Profile
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SettingsPage({ role }) {
-  const { feeConfig, setFeeConfig, studentOverrides, setStudentOverrides, students: STUDENTS, resetAllData, users, addUser, updateUser, deleteUser, announcements: ANNOUNCEMENTS, addAnnouncement, deleteAnnouncement, exams: EXAMS, addExam, deleteExam, subjects: SUBJECTS_DATA, setSubjects } = useAppData();
+  const { feeConfig, setFeeConfig, studentOverrides, setStudentOverrides, students: STUDENTS, resetAllData, users, addUser, updateUser, deleteUser, announcements: ANNOUNCEMENTS, addAnnouncement, deleteAnnouncement, exams: EXAMS, addExam, deleteExam, subjects: SUBJECTS_DATA, setSubjects, schoolProfile, setSchoolProfile } = useAppData();
   const [settingsTab, setSettingsTab] = useState("school");
   const canManageContent = role === "admin" || role === "principal" || role === "teacher";
   const [overrideStudent, setOverrideStudent] = useState(null);
@@ -4254,25 +4314,7 @@ function SettingsPage({ role }) {
 
       {settingsTab === "school" && (
         <div className="grid-2">
-          <div className="card">
-            <div className="card-header"><div className="card-title">School Profile</div></div>
-            <div className="card-body">
-              {[
-                { label: "School Name", value: "Aadyant Gurukulam" },
-                { label: "Managed By", value: "Deshpande Education Foundation" },
-                { label: "Address", value: "123 Main Street, Bengaluru" },
-                { label: "Phone", value: "+91 80 1234 5678" },
-                { label: "Email", value: "info@aadyantgurukulam.edu.in" },
-                { label: "Principal", value: "Mrs. Sunita Rao" },
-              ].map((f, i) => (
-                <div className="form-group" key={i}>
-                  <label className="form-label">{f.label}</label>
-                  <input className="input" defaultValue={f.value} disabled={!canEdit} />
-                </div>
-              ))}
-              {canEdit && <button className="btn btn-primary">Save Profile</button>}
-            </div>
-          </div>
+          <SchoolProfileCard schoolProfile={schoolProfile} setSchoolProfile={setSchoolProfile} canEdit={canEdit} />
           <div className="card">
             <div className="card-header"><div className="card-title">Classes & Class Teachers</div></div>
             <div className="card-body">
