@@ -1107,8 +1107,33 @@ function Dashboard({ role }) {
 }
 
 // ---- STUDENTS ----
-function StudentsPage({ role }) {
-  const { students: STUDENTS, marks: MARKS, addStudent } = useAppData();
+
+// ── REUSABLE YEAR SELECTOR ──────────────────────────────────
+function YearSelector({ selectedYear, setSelectedYear, availableYears, feeConfig }) {
+  const years = availableYears || Object.keys(feeConfig?.years || { "2024-25": {} });
+  const yearLabel = (yk) => feeConfig?.years?.[yk]?.label || yk;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+      <span style={{ fontSize: 11, fontWeight: 800, color: palette.muted, textTransform: "uppercase", letterSpacing: 1 }}>Year:</span>
+      {years.map(yk => (
+        <button key={yk} onClick={() => setSelectedYear(yk)}
+          style={{ padding: "5px 14px", borderRadius: 20,
+            border: `2px solid ${selectedYear === yk ? palette.navy : palette.border}`,
+            background: selectedYear === yk ? palette.navy : "white",
+            color: selectedYear === yk ? "white" : palette.navy,
+            fontWeight: 700, fontSize: 12, cursor: "pointer", transition: "all 0.15s" }}>
+          {yk}
+          {yk === feeConfig?.activeYear && selectedYear !== yk && (
+            <span style={{ marginLeft: 5, fontSize: 9, opacity: 0.7 }}>●</span>
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function StudentsPage({ role, selectedYear, setSelectedYear, availableYears }) {
+  const { students: STUDENTS, marks: MARKS, addStudent, feeConfig } = useAppData();
   const [search, setSearch] = useState("");
   const [classFilter, setClassFilter] = useState("All");
   const [feeFilter, setFeeFilter] = useState("All");
@@ -1133,11 +1158,26 @@ function StudentsPage({ role }) {
     return updated;
   });
 
-  const filtered = STUDENTS.filter(s =>
-    (classFilter === "All" || s.class === classFilter) &&
-    (feeFilter === "All" || studentFeeStatus(s) === feeFilter) &&
-    (s.name.toLowerCase().includes(search.toLowerCase()) || s.rollNo.toLowerCase().includes(search.toLowerCase()))
-  );
+  // Year filter: academic year "2024-25" spans Jun 2024 – Mar 2025
+  const yearStart = selectedYear ? parseInt(selectedYear.split("-")[0]) : null;
+  const yearEnd = selectedYear ? parseInt(selectedYear.split("-")[1]) + 2000 : null;
+  const filtered = STUDENTS.filter(s => {
+    if (yearStart) {
+      const adm = s.admissionDate ? new Date(s.admissionDate) : null;
+      if (adm) {
+        const admYear = adm.getFullYear();
+        const admMonth = adm.getMonth() + 1; // 1-12
+        // Student belongs to this academic year if admitted Jun-Dec of yearStart OR Jan-May of yearEnd
+        const inYear = (admYear === yearStart && admMonth >= 6) || (admYear === yearEnd && admMonth <= 5);
+        // Also include students admitted in earlier years (continuing students)
+        const continuing = admYear < yearStart || (admYear === yearStart && admMonth < 6);
+        if (!inYear && !continuing) return false;
+      }
+    }
+    return (classFilter === "All" || s.class === classFilter) &&
+      (feeFilter === "All" || studentFeeStatus(s) === feeFilter) &&
+      (s.name.toLowerCase().includes(search.toLowerCase()) || s.rollNo.toLowerCase().includes(search.toLowerCase()));
+  });
 
   const canEdit = role === "admin" || role === "principal";
 
@@ -1146,9 +1186,13 @@ function StudentsPage({ role }) {
       <div className="page-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
           <div className="page-title">Student Registry 👦</div>
-          <div className="page-sub">{filtered.length} students found</div>
+          <div className="page-sub">{filtered.length} students · {selectedYear} · {feeConfig?.years?.[selectedYear]?.label || ""}</div>
         </div>
         {canEdit && <button className="btn btn-primary" onClick={() => setShowAdd(true)}>+ Add Student</button>}
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <YearSelector selectedYear={selectedYear} setSelectedYear={setSelectedYear} availableYears={availableYears} feeConfig={feeConfig} />
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
@@ -1422,7 +1466,7 @@ function StudentsPage({ role }) {
 }
 
 // ---- FEES ----
-function FeesPage({ role }) {
+function FeesPage({ role, selectedYear, setSelectedYear, availableYears }) {
   const { students: STUDENTS, feeConfig, studentOverrides, setFeeConfig, setStudentOverrides, recordPayment, updateStudentPlan } = useAppData();
   const [activeTab, setActiveTab] = useState("overview");
   const [selectedStudent, setSelectedStudent] = useState(null);
@@ -1474,7 +1518,7 @@ function FeesPage({ role }) {
       <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
           <div className="page-title">Fee Management 💰</div>
-          <div className="page-sub">Academic Year: June 2024 – March 2025 · Flexible enrollment & payment modes</div>
+          <div className="page-sub">📅 {selectedYear} · {feeConfig?.years?.[selectedYear]?.label || "Academic Year"}</div>
         </div>
         {canManage && (
           <div style={{ display: "flex", gap: 10 }}>
@@ -1482,6 +1526,10 @@ function FeesPage({ role }) {
             <button className="btn btn-primary">+ Record Payment</button>
           </div>
         )}
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <YearSelector selectedYear={selectedYear} setSelectedYear={setSelectedYear} availableYears={availableYears} feeConfig={feeConfig} />
       </div>
 
       {/* KPI STRIP */}
@@ -1541,7 +1589,16 @@ function FeesPage({ role }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {STUDENTS.map(s => {
+                  {STUDENTS.filter(s => {
+                    if (!selectedYear) return true;
+                    const yrStart = parseInt(selectedYear.split("-")[0]);
+                    const yrEnd = yrStart + 1;
+                    return !s.enrolledMonths || s.enrolledMonths.some(mk => {
+                      const parts = mk.split("-"); const mo = parts[0]; const y = parseInt(parts[1]);
+                      const mIdx = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].indexOf(mo);
+                      return (y === yrStart && mIdx >= 5) || (y === yrEnd && mIdx <= 2);
+                    });
+                  }).map(s => {
                     const fs = studentFeeStatus(s);
                     const { paid, due } = studentSummary(s);
                     const el = ENROLLMENT_LABELS[s.enrollmentType];
@@ -1904,10 +1961,10 @@ function FeesPage({ role }) {
       {showPlanModal && planStudent && canManage && (() => {
         const years = Object.keys(feeConfig.years || { "2024-25": {} });
         const [selYear, setSelYear] = [
-          planStudent._planYear || feeConfig.activeYear,
+          planStudent._planYear || selectedYear || feeConfig.activeYear,
           (y) => setPlanStudent(p => ({ ...p, _planYear: y }))
         ];
-        const activeSelYear = planStudent._planYear || feeConfig.activeYear;
+        const activeSelYear = planStudent._planYear || selectedYear || feeConfig.activeYear;
         const yearData = feeConfig.years?.[activeSelYear] || {};
         const fees = yearData.feeStructure?.[planStudent.class] || { monthly: 2000, term1: 10000, term2: 10000, fullYear: 17000 };
         const existingPlan = planStudent.yearPlans?.[activeSelYear]?.mode || planStudent.paymentMode || "monthly";
@@ -2039,8 +2096,8 @@ function FeesPage({ role }) {
 }
 
 // ---- SYLLABUS ----
-function SyllabusPage({ role }) {
-  const { syllabus: SYLLABUS, toggleSyllabusTopic } = useAppData();
+function SyllabusPage({ role, selectedYear, setSelectedYear, availableYears }) {
+  const { syllabus: SYLLABUS, toggleSyllabusTopic, feeConfig } = useAppData();
   const [selectedClass, setSelectedClass] = useState("UKG");
   const [selectedSubject, setSelectedSubject] = useState("English");
 
@@ -2050,9 +2107,12 @@ function SyllabusPage({ role }) {
   const canEdit = role === "admin" || role === "principal" || role === "teacher";
   return (
     <div className="page">
-      <div className="page-header">
-        <div className="page-title">Syllabus Tracker 📚</div>
-        <div className="page-sub">Monitor academic coverage across all classes</div>
+      <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <div className="page-title">Syllabus Tracker 📚</div>
+          <div className="page-sub">📅 {selectedYear} · {feeConfig?.years?.[selectedYear]?.label || "Academic Year"}</div>
+        </div>
+        <YearSelector selectedYear={selectedYear} setSelectedYear={setSelectedYear} availableYears={availableYears} feeConfig={feeConfig} />
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
@@ -2141,8 +2201,8 @@ function SyllabusPage({ role }) {
 }
 
 // ---- EXAMS ----
-function ExamsPage({ role }) {
-  const { exams: EXAMS, addExam } = useAppData();
+function ExamsPage({ role, selectedYear, setSelectedYear, availableYears }) {
+  const { exams: EXAMS, addExam, feeConfig } = useAppData();
   const canEdit = role === "admin" || role === "principal";
   const [showAdd, setShowAdd] = useState(false);
 
@@ -2151,9 +2211,13 @@ function ExamsPage({ role }) {
       <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <div className="page-title">Exam Schedule 📝</div>
-          <div className="page-sub">Manage all examination schedules</div>
+          <div className="page-sub">📅 {selectedYear} · {feeConfig?.years?.[selectedYear]?.label || "Academic Year"}</div>
         </div>
         {canEdit && <button className="btn btn-primary" onClick={() => setShowAdd(true)}>+ Schedule Exam</button>}
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <YearSelector selectedYear={selectedYear} setSelectedYear={setSelectedYear} availableYears={availableYears} feeConfig={feeConfig} />
       </div>
 
       <div className="stats-grid">
@@ -2187,7 +2251,16 @@ function ExamsPage({ role }) {
               </tr>
             </thead>
             <tbody>
-              {EXAMS.map(e => (
+              {EXAMS.filter(e => {
+                  if (!selectedYear || !e.date) return true;
+                  const d = new Date(e.date);
+                  if (!d) return true;
+                  const yrStart = parseInt(selectedYear.split("-")[0]);
+                  const yrEnd = yrStart + 1;
+                  const m = d.getMonth() + 1;
+                  const y = d.getFullYear();
+                  return (y === yrStart && m >= 6) || (y === yrEnd && m <= 5);
+                }).map(e => (
                 <tr key={e.id}>
                   <td><strong>{e.name}</strong></td>
                   <td>{e.date}</td>
@@ -2251,7 +2324,7 @@ function ExamsPage({ role }) {
                 const inputs = form ? form.querySelectorAll("input,select") : [];
                 const vals = {};
                 inputs.forEach(el => { if (el.name) vals[el.name] = el.value; });
-                addExam({ name: vals.name || "New Exam", class: vals.cls || "All", date: vals.date || "", time: vals.time || "9:00 AM", subject: vals.subject || "All Subjects", status: "upcoming" });
+                addExam({ name: vals.name || "New Exam", class: vals.cls || "All", date: vals.date || "", time: vals.time || "9:00 AM", subject: vals.subject || "All Subjects", status: "upcoming", academicYear: selectedYear });
                 setShowAdd(false);
                 alert("✅ Exam scheduled and saved!");
               }}>Schedule</button>
@@ -2264,7 +2337,7 @@ function ExamsPage({ role }) {
 }
 
 // ---- MARKS & PERFORMANCE ----
-function MarksPage({ role }) {
+function MarksPage({ role, selectedYear, setSelectedYear, availableYears }) {
   const { students: STUDENTS, marks: MARKS, saveMarks } = useAppData();
   const [selectedClass, setSelectedClass] = useState("UKG");
   const [selectedStudent, setSelectedStudent] = useState(null);
@@ -2656,7 +2729,7 @@ function ExamSchedulePanel({ exams, addExam, deleteExam, role }) {
   function handleSave() {
     if (!form.name.trim()) { setErr("Exam name is required."); return; }
     if (!form.date) { setErr("Please select a date."); return; }
-    addExam({ name: form.name.trim(), class: form.class, date: form.date, time: form.time || "9:00 AM", subject: form.subject || "All Subjects", status: "upcoming" });
+    addExam({ name: form.name.trim(), class: form.class, date: form.date, time: form.time || "9:00 AM", subject: form.subject || "All Subjects", status: "upcoming", academicYear: "2024-25" });
     setSaved(true); setTimeout(() => setSaved(false), 2000);
     setShowAdd(false); setForm(EMPTY); setErr("");
   }
@@ -3722,6 +3795,9 @@ function AppInner() {
   const [role, setRole] = useState("admin");
   const [currentUser, setCurrentUser] = useState(null);
   const [page, setPage] = useState("dashboard");
+  const { feeConfig } = useAppData();
+  const availableYears = Object.keys(feeConfig?.years || { "2024-25": {} });
+  const [selectedYear, setSelectedYear] = useState(() => feeConfig?.activeYear || "2024-25");
 
   const handleLogin = (r, userObj) => { setRole(r); setCurrentUser(userObj); setLoggedIn(true); setPage("dashboard"); };
   if (!loggedIn) return <LoginScreen onLogin={handleLogin} users={users} />;
@@ -3780,11 +3856,11 @@ function AppInner() {
             </div>
           </div>
           {page === "dashboard" && <Dashboard role={role} />}
-          {page === "students" && <StudentsPage role={role} />}
-          {page === "fees" && <FeesPage role={role} />}
-          {page === "syllabus" && <SyllabusPage role={role} />}
-          {page === "exams" && <ExamsPage role={role} />}
-          {page === "marks" && <MarksPage role={role} />}
+          {page === "students" && <StudentsPage role={role} selectedYear={selectedYear} setSelectedYear={setSelectedYear} availableYears={availableYears} />}
+          {page === "fees" && <FeesPage role={role} selectedYear={selectedYear} setSelectedYear={setSelectedYear} availableYears={availableYears} />}
+          {page === "syllabus" && <SyllabusPage role={role} selectedYear={selectedYear} setSelectedYear={setSelectedYear} availableYears={availableYears} />}
+          {page === "exams" && <ExamsPage role={role} selectedYear={selectedYear} setSelectedYear={setSelectedYear} availableYears={availableYears} />}
+          {page === "marks" && <MarksPage role={role} selectedYear={selectedYear} setSelectedYear={setSelectedYear} availableYears={availableYears} />}
           {page === "analytics" && <AnalyticsPage role={role} />}
           {page === "settings" && <SettingsPage role={role} />}
         </main>
