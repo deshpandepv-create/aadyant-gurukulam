@@ -1083,8 +1083,10 @@ function ParentDashboard({ currentUser }) {
   const upcomingExams = yearExams.filter(e => e.status === "upcoming").sort((a,b) => a.date.localeCompare(b.date));
   const nextExam = upcomingExams[0];
 
-  // Announcements — all school-wide (parents see general announcements)
-  const recentAnn = [...ANNOUNCEMENTS].sort((a,b) => b.date?.localeCompare(a.date)).slice(0, 5);
+  // Announcements — show "All Classes" ones + ones targeted to child's class
+  const recentAnn = [...ANNOUNCEMENTS]
+    .filter(a => !a.targetClass || a.targetClass === "All" || a.targetClass === child?.class)
+    .sort((a,b) => b.date?.localeCompare(a.date)).slice(0, 5);
 
   const gradeLabel = (avg) => avg >= 90 ? "A+" : avg >= 80 ? "A" : avg >= 70 ? "B" : avg >= 60 ? "C" : "D";
 
@@ -1379,15 +1381,21 @@ function Dashboard({ role, currentUser }) {
           </div>
           <div className="card-body">
             {ANNOUNCEMENTS.length === 0 && <div style={{ color: palette.muted, fontSize: 13 }}>No announcements yet.</div>}
-            {ANNOUNCEMENTS.map(a => (
-              <div key={a.id} className={`ann-card ann-category-${a.category}`}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <div style={{ fontWeight: 800, fontSize: 13, color: palette.navy }}>{a.title}</div>
-                  <div style={{ fontSize: 11, color: palette.muted }}>{a.date}</div>
+            {ANNOUNCEMENTS.map(a => {
+              const cc = a.targetClass && a.targetClass !== "All" ? classColors[a.targetClass] : null;
+              return (
+                <div key={a.id} className={`ann-card ann-category-${a.category}`}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div style={{ fontWeight: 800, fontSize: 13, color: palette.navy }}>{a.title}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      {cc && <span style={{ padding: "1px 8px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: cc.bg, color: cc.accent }}>{a.targetClass}</span>}
+                      <div style={{ fontSize: 11, color: palette.muted }}>{a.date}</div>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 12, color: palette.muted, marginTop: 4 }}>{a.content}</div>
                 </div>
-                <div style={{ fontSize: 12, color: palette.muted, marginTop: 4 }}>{a.content}</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -3059,56 +3067,94 @@ function AnalyticsPage({ role }) {
 
 // ---- SETTINGS ----
 // ---- ANNOUNCEMENTS PANEL ----
-function AnnouncementsPanel({ announcements, addAnnouncement, deleteAnnouncement, role }) {
+function AnnouncementsPanel({ announcements, addAnnouncement, deleteAnnouncement, role, currentUser }) {
   const CATEGORIES = [
     { value: "event",   label: "Event",   icon: "🎉", color: palette.sky },
     { value: "meeting", label: "Meeting", icon: "🤝", color: palette.lavender },
     { value: "holiday", label: "Holiday", icon: "🏖️", color: palette.coral },
     { value: "notice",  label: "Notice",  icon: "📌", color: palette.sun },
   ];
-  const EMPTY = { title: "", content: "", category: "event", date: new Date().toISOString().slice(0, 10) };
+  const CLASS_TARGETS = ["All", ...CLASSES];
+  const EMPTY = { title: "", content: "", category: "event", targetClass: "All", date: new Date().toISOString().slice(0, 10) };
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(EMPTY);
+  const [filterClass, setFilterClass] = useState("All");
   const [confirmDel, setConfirmDel] = useState(null);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState("");
 
   function handleSave() {
     if (!form.title.trim() || !form.content.trim()) { setErr("Title and content are required."); return; }
-    addAnnouncement({ title: form.title.trim(), content: form.content.trim(), category: form.category, date: form.date });
+    addAnnouncement({ title: form.title.trim(), content: form.content.trim(), category: form.category, targetClass: form.targetClass || "All", date: form.date });
     setSaved(true); setTimeout(() => setSaved(false), 2000);
     setShowAdd(false); setForm(EMPTY); setErr("");
   }
 
   const catMeta = (cat) => CATEGORIES.find(c => c.value === cat) || CATEGORIES[0];
+  const classMeta = (cls) => cls && cls !== "All" ? (classColors[cls] || { bg: "#EEE", accent: "#999" }) : null;
+
+  // Filter list by selected class tab
+  const visibleAnn = filterClass === "All"
+    ? announcements
+    : announcements.filter(a => !a.targetClass || a.targetClass === "All" || a.targetClass === filterClass);
 
   return (
     <div>
       {saved && <div style={{ padding: "12px 16px", background: "#E8F5E9", borderRadius: 12, marginBottom: 16, fontWeight: 700, color: "#388E3C" }}>✅ Announcement posted!</div>}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <div style={{ fontSize: 13, color: palette.muted, fontWeight: 600 }}>{announcements.length} announcement{announcements.length !== 1 ? "s" : ""} total</div>
+
+      {/* Header row with filter tabs + New button */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+        {/* Class filter tabs */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {CLASS_TARGETS.map(cls => {
+            const cc = cls !== "All" ? classColors[cls] : null;
+            const isActive = filterClass === cls;
+            const count = cls === "All" ? announcements.length
+              : announcements.filter(a => a.targetClass === cls).length;
+            return (
+              <button key={cls} onClick={() => setFilterClass(cls)}
+                style={{ padding: "5px 14px", borderRadius: 20, border: `2px solid ${isActive ? (cc?.accent || palette.navy) : palette.border}`,
+                  background: isActive ? (cc ? cc.bg : palette.navy) : "white", cursor: "pointer",
+                  fontSize: 12, fontWeight: 700, color: isActive ? (cc ? cc.accent : "white") : palette.muted,
+                  fontFamily: "'Nunito', sans-serif", display: "flex", alignItems: "center", gap: 5 }}>
+                {cls === "All" ? "🏫 All" : cls}
+                {count > 0 && <span style={{ background: isActive ? (cc?.accent || palette.sky) : palette.border,
+                  color: isActive ? "white" : palette.muted, borderRadius: 10, padding: "0 6px", fontSize: 10 }}>{count}</span>}
+              </button>
+            );
+          })}
+        </div>
         <button className="btn btn-primary" onClick={() => { setForm(EMPTY); setErr(""); setShowAdd(true); }}>+ New Announcement</button>
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {announcements.length === 0 && (
-          <div style={{ textAlign: "center", padding: 48, color: palette.muted, fontWeight: 700 }}>No announcements yet. Add one above.</div>
+        {visibleAnn.length === 0 && (
+          <div style={{ textAlign: "center", padding: 48, color: palette.muted, fontWeight: 700 }}>
+            No announcements{filterClass !== "All" ? ` for ${filterClass}` : ""} yet.
+          </div>
         )}
-        {announcements.map(a => {
+        {visibleAnn.map(a => {
           const meta = catMeta(a.category);
+          const cc = classMeta(a.targetClass);
           return (
             <div key={a.id} className="card" style={{ borderLeft: `5px solid ${meta.color}` }}>
               <div className="card-body" style={{ paddingTop: 16, paddingBottom: 16 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
                       <span style={{ padding: "2px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, background: `${meta.color}22`, color: meta.color }}>{meta.icon} {meta.label}</span>
+                      {/* Class badge */}
+                      {a.targetClass && a.targetClass !== "All"
+                        ? <span style={{ padding: "2px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, background: cc ? cc.bg : "#EEE", color: cc ? cc.accent : "#666" }}>🏷️ {a.targetClass}</span>
+                        : <span style={{ padding: "2px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, background: "#F5F5F5", color: palette.muted }}>🏫 All Classes</span>
+                      }
                       <span style={{ fontSize: 12, color: palette.muted, fontWeight: 600 }}>{a.date}</span>
                     </div>
                     <div style={{ fontWeight: 800, fontSize: 15, color: palette.navy, marginBottom: 4 }}>{a.title}</div>
                     <div style={{ fontSize: 13, color: palette.muted, lineHeight: 1.5 }}>{a.content}</div>
                   </div>
-                  <button className="btn btn-danger btn-sm" onClick={() => setConfirmDel(a)}>🗑</button>
+                  {(role === "admin" || role === "principal" || role === "teacher") &&
+                    <button className="btn btn-danger btn-sm" onClick={() => setConfirmDel(a)}>🗑</button>}
                 </div>
               </div>
             </div>
@@ -3118,12 +3164,14 @@ function AnnouncementsPanel({ announcements, addAnnouncement, deleteAnnouncement
 
       {showAdd && (
         <div className="modal-overlay" onClick={() => setShowAdd(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ width: 520 }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ width: 540 }}>
             <div className="modal-header">
               <div className="modal-title">📢 New Announcement</div>
               <button className="close-btn" onClick={() => setShowAdd(false)}>✕</button>
             </div>
             {err && <div style={{ background: "#FFEBEE", color: "#C62828", borderRadius: 10, padding: "10px 14px", fontSize: 13, fontWeight: 700, marginBottom: 16 }}>⚠️ {err}</div>}
+
+            {/* Category */}
             <div className="form-group">
               <label className="form-label">Category</label>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -3137,6 +3185,28 @@ function AnnouncementsPanel({ announcements, addAnnouncement, deleteAnnouncement
                 ))}
               </div>
             </div>
+
+            {/* Target Class */}
+            <div className="form-group">
+              <label className="form-label">Target Class <span style={{ color: palette.muted, fontWeight: 400 }}>— who should see this?</span></label>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {CLASS_TARGETS.map(cls => {
+                  const cc = cls !== "All" ? classColors[cls] : null;
+                  const isActive = form.targetClass === cls;
+                  return (
+                    <button key={cls} onClick={() => setForm(p => ({ ...p, targetClass: cls }))}
+                      style={{ padding: "7px 14px", borderRadius: 20, cursor: "pointer", fontFamily: "'Nunito', sans-serif",
+                        fontSize: 12, fontWeight: 700,
+                        border: `2px solid ${isActive ? (cc?.accent || palette.navy) : palette.border}`,
+                        background: isActive ? (cc ? cc.bg : palette.navy) : "white",
+                        color: isActive ? (cc ? cc.accent : "white") : palette.muted }}>
+                      {cls === "All" ? "🏫 All Classes" : cls}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             <div className="form-row">
               <div className="form-group" style={{ gridColumn: "1 / -1" }}>
                 <label className="form-label">Title *</label>
