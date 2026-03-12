@@ -512,6 +512,32 @@ function AppDataProvider({ children }) {
     }));
   };
 
+  // Promote student to next class; records history
+  const promoteStudent = (studentId, nextClass, year, promotedBy) => {
+    setStudents(prev => prev.map(s => {
+      if (s.id !== studentId) return s;
+      const history = s.promotionHistory || [];
+      return {
+        ...s,
+        class: nextClass || s.class,
+        status: nextClass === null ? "alumnus" : "active",
+        alumnus: nextClass === null,
+        promotionHistory: [...history, {
+          from: s.class,
+          to: nextClass || "Graduated",
+          year,
+          promotedOn: new Date().toISOString().slice(0, 10),
+          promotedBy
+        }]
+      };
+    }));
+  };
+
+  // Revoke or restore parent portal access (preserves user record)
+  const setParentAccess = (userId, revoked) => {
+    setUsers(prev => prev.map(u => u.id === userId ? { ...u, accessRevoked: revoked } : u));
+  };
+
   // Add student
   const addStudent = (formData) => {
     const nextId = students.length > 0 ? Math.max(...students.map(s => s.id)) + 1 : 1;
@@ -581,7 +607,7 @@ function AppDataProvider({ children }) {
       students, marks, syllabus, exams, announcements, feeConfig, studentOverrides, users,
       setStudents, setMarks, setSyllabus, setExams, setAnnouncements, setFeeConfig, setStudentOverrides, setUsers,
       addStudent, recordPayment, toggleSyllabusTopic, saveMarks, addExam, deleteExam, addAnnouncement, deleteAnnouncement, resetAllData,
-      addUser, updateUser, deleteUser, updateStudentPlan,
+      addUser, updateUser, deleteUser, updateStudentPlan, promoteStudent, setParentAccess,
       selectedYear, setSelectedYear, availableYears,
       closedYears, isYearClosed, closeYear, reopenYear,
       subjects, setSubjects,
@@ -1009,10 +1035,16 @@ function LoginScreen({ onLogin, users }) {
     // Check users list
     const match = users.find(u => u.email.trim().toLowerCase() === email.trim().toLowerCase() && u.passwordHash === hash && u.active);
     if (match) {
+      if (match.accessRevoked) {
+        setError("Your portal access has been revoked. Please contact the school.");
+        return;
+      }
       onLogin(match.role, match);
     } else {
       const emailMatch = users.find(u => u.email.trim().toLowerCase() === email.trim().toLowerCase());
-      if (emailMatch && !emailMatch.active) {
+      if (emailMatch && emailMatch.accessRevoked) {
+        setError("Your portal access has been revoked. Please contact the school.");
+      } else if (emailMatch && !emailMatch.active) {
         setError("This account has been disabled. Contact your admin.");
       } else if (emailMatch && emailMatch.passwordHash !== hash) {
         setError("Incorrect password.");
@@ -1560,7 +1592,7 @@ function YearSelector({ selectedYear: propYear, setSelectedYear: propSet, availa
 }
 
 function StudentsPage({ role, currentUser }) {
-  const { students: ALL_STUDENTS, marks: MARKS, addStudent, feeConfig, selectedYear, setSelectedYear, availableYears, isYearClosed } = useAppData();
+  const { students: ALL_STUDENTS, marks: MARKS, addStudent, promoteStudent, users, setParentAccess, feeConfig, selectedYear, setSelectedYear, availableYears, isYearClosed } = useAppData();
   // Teachers see only their assigned class; admin/principal see all
   const teacherClass = role === "teacher" && currentUser?.assignedClass ? currentUser.assignedClass : null;
   const STUDENTS = teacherClass ? ALL_STUDENTS.filter(s => s.class === teacherClass) : ALL_STUDENTS;
@@ -1569,6 +1601,8 @@ function StudentsPage({ role, currentUser }) {
   const [feeFilter, setFeeFilter] = useState("All");
   const [selected, setSelected] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [showPromote, setShowPromote] = useState(null);
+  const [statusFilter, setStatusFilter] = useState("active");
   const ROLL_PREFIXES = { Playgroup: "PG", Nursery: "NUR", LKG: "LKG", UKG: "UKG" };
   const generateRollNo = (cls, admissionDate) => {
     if (!admissionDate) return "";
@@ -1604,6 +1638,8 @@ function StudentsPage({ role, currentUser }) {
         if (!inYear && !continuing) return false;
       }
     }
+    if (statusFilter === "active" && s.alumnus) return false;
+    if (statusFilter === "alumnus" && !s.alumnus) return false;
     return (classFilter === "All" || s.class === classFilter) &&
       (feeFilter === "All" || studentFeeStatus(s) === feeFilter) &&
       (s.name.toLowerCase().includes(search.toLowerCase()) || s.rollNo.toLowerCase().includes(search.toLowerCase()));
@@ -1624,6 +1660,18 @@ function StudentsPage({ role, currentUser }) {
 
       <div style={{ marginBottom: 16 }}>
         <YearSelector selectedYear={selectedYear} setSelectedYear={setSelectedYear} availableYears={availableYears} feeConfig={feeConfig} />
+      </div>
+
+      {/* Active / Alumni toggle */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        {[["active","🎒 Active"],["alumnus","🎓 Alumni"],["all","All"]].map(([v,lbl]) => (
+          <button key={v} onClick={() => setStatusFilter(v)}
+            style={{ padding: "5px 16px", borderRadius: 20, border: `2px solid ${statusFilter === v ? palette.navy : palette.border}`,
+              background: statusFilter === v ? palette.navy : "white", color: statusFilter === v ? "white" : palette.muted,
+              fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+            {lbl} <span style={{ opacity: 0.7, fontSize: 11 }}>({v === "active" ? ALL_STUDENTS.filter(s => !s.alumnus).length : v === "alumnus" ? ALL_STUDENTS.filter(s => s.alumnus).length : ALL_STUDENTS.length})</span>
+          </button>
+        ))}
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
@@ -1657,6 +1705,7 @@ function StudentsPage({ role, currentUser }) {
               </div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 <span className="class-pill" style={{ background: cc.bg, color: cc.accent }}>{s.class}</span>
+                {s.alumnus && <span style={{ fontSize: 10, fontWeight: 800, background: "#EDE7F6", color: "#6A1B9A", padding: "2px 8px", borderRadius: 10 }}>🎓 Alumni</span>}
                 {role !== "teacher" && (
                   <span className={`fee-badge fee-${feeStatus}`}>
                     {feeStatus === "paid" ? "✓" : feeStatus === "overdue" ? "⚠" : "○"} {feeStatus}
@@ -1768,6 +1817,110 @@ function StudentsPage({ role, currentUser }) {
                 </div>
               </>
             )}
+            {/* Promotion History */}
+            {selected.promotionHistory && selected.promotionHistory.length > 0 && (
+              <div style={{ marginTop: 20, padding: "14px 16px", background: "#F3E5F5", borderRadius: 12, border: "1.5px solid #CE93D8" }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: "#6A1B9A", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>📚 Promotion History</div>
+                {selected.promotionHistory.map((h, i) => (
+                  <div key={i} style={{ fontSize: 13, fontWeight: 600, color: palette.navy, marginBottom: 6, display: "flex", gap: 8, alignItems: "center" }}>
+                    <span style={{ fontSize: 11, background: "#CE93D8", color: "white", padding: "2px 8px", borderRadius: 8 }}>{h.year}</span>
+                    <span>{h.from} → <strong>{h.to}</strong></span>
+                    <span style={{ fontSize: 11, color: palette.muted, marginLeft: "auto" }}>{h.promotedOn}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Promote / Graduate Actions */}
+            {canEdit && (
+              <div style={{ marginTop: 20, paddingTop: 16, borderTop: `2px solid ${palette.border}` }}>
+                {selected.alumnus ? (
+                  <div style={{ padding: "12px 16px", background: "#EDE7F6", borderRadius: 12, display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{ fontSize: 22 }}>🎓</span>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 14, color: "#6A1B9A" }}>Alumnus</div>
+                      <div style={{ fontSize: 12, color: "#7B1FA2" }}>This student has completed their education at Aadyant Gurukulam.</div>
+                    </div>
+                  </div>
+                ) : CLASS_PROGRESSION[selected.class] ? (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: "#E8F5E9", borderRadius: 12, border: "1.5px solid #A5D6A7" }}>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 14, color: "#2E7D32" }}>🎒 Promote to Next Class</div>
+                      <div style={{ fontSize: 12, color: "#388E3C", marginTop: 2 }}>Move <strong>{selected.class}</strong> → <strong>{CLASS_PROGRESSION[selected.class]}</strong></div>
+                    </div>
+                    <button onClick={e => { e.stopPropagation(); setShowPromote(selected); }}
+                      style={{ padding: "8px 18px", borderRadius: 10, background: "#2E7D32", color: "white", fontWeight: 800, fontSize: 13, border: "none", cursor: "pointer" }}>
+                      Promote ▶
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: "#FFF8E1", borderRadius: 12, border: "1.5px solid #FFE082" }}>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 14, color: "#E65100" }}>🎓 Mark as Graduated</div>
+                      <div style={{ fontSize: 12, color: "#BF360C", marginTop: 2 }}>UKG complete — mark as alumnus</div>
+                    </div>
+                    <button onClick={e => { e.stopPropagation(); setShowPromote(selected); }}
+                      style={{ padding: "8px 18px", borderRadius: 10, background: "#E65100", color: "white", fontWeight: 800, fontSize: 13, border: "none", cursor: "pointer" }}>
+                      Graduate 🎓
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Promote / Graduate Confirmation Modal */}
+      {showPromote && (
+        <div className="modal-overlay" onClick={() => setShowPromote(null)}>
+          <div className="modal" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+            {(() => {
+              const nextClass = CLASS_PROGRESSION[showPromote.class];
+              const isGraduate = !nextClass;
+              const linkedParent = users.find(u => u.role === "parent" && Number(u.linkedStudentId) === showPromote.id);
+              return (
+                <>
+                  <div className="modal-header">
+                    <div className="modal-title">{isGraduate ? "🎓 Confirm Graduation" : "🎒 Confirm Promotion"}</div>
+                    <button className="close-btn" onClick={() => setShowPromote(null)}>✕</button>
+                  </div>
+                  <div style={{ marginBottom: 20 }}>
+                    <div style={{ padding: "14px 16px", background: palette.offwhite, borderRadius: 12, marginBottom: 16 }}>
+                      <div style={{ fontWeight: 800, fontSize: 15, color: palette.navy, marginBottom: 4 }}>{showPromote.photo} {showPromote.name}</div>
+                      <div style={{ fontSize: 13, color: palette.muted }}>Current class: <strong>{showPromote.class}</strong></div>
+                      {!isGraduate && <div style={{ fontSize: 13, color: "#2E7D32", marginTop: 4 }}>Will be promoted to: <strong>{nextClass}</strong></div>}
+                    </div>
+                    {isGraduate ? (
+                      <div style={{ fontSize: 13, color: palette.navy, lineHeight: 1.7 }}>
+                        <p style={{ marginBottom: 10 }}>Marking <strong>{showPromote.name}</strong> as <strong>Alumnus / Graduated</strong>. Their record is preserved but they will no longer appear in active class lists.</p>
+                        {linkedParent && !linkedParent.accessRevoked && (
+                          <div style={{ padding: "12px 14px", background: "#FFF3E0", borderRadius: 10, border: "1.5px solid #FFB74D" }}>
+                            <div style={{ fontWeight: 800, fontSize: 13, color: "#E65100", marginBottom: 4 }}>⚠ Parent Portal Access</div>
+                            <div style={{ fontSize: 12, color: "#BF360C" }}><strong>{linkedParent.name}</strong> still has parent portal access. You can revoke it from <em>Settings → User Management</em> after graduation.</div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 13, color: palette.navy, lineHeight: 1.6 }}>
+                        Class will be updated from <strong>{showPromote.class}</strong> to <strong>{nextClass}</strong> and a promotion entry will be recorded.
+                        <div style={{ marginTop: 10, padding: "10px 12px", background: "#E3F2FD", borderRadius: 8, fontSize: 12, color: "#1565C0" }}>
+                          💡 Existing marks and fee history are preserved. Set up a new fee plan for {nextClass} in the next academic year.
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                    <button className="btn btn-ghost" onClick={() => setShowPromote(null)}>Cancel</button>
+                    <button onClick={() => { promoteStudent(showPromote.id, nextClass || null, selectedYear, "Admin"); setSelected(null); setShowPromote(null); }}
+                      style={{ padding: "10px 22px", borderRadius: 10, border: "none", cursor: "pointer",
+                        background: isGraduate ? "#E65100" : "#2E7D32", color: "white", fontWeight: 800, fontSize: 14 }}>
+                      {isGraduate ? "Yes, Graduate 🎓" : `Promote to ${nextClass} ▶`}
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -3786,7 +3939,7 @@ function ExamSchedulePanel({ exams, addExam, deleteExam, role }) {
 }
 
 // ---- USER MANAGEMENT PANEL ----
-function UserManagementPanel({ users, students, addUser, updateUser, deleteUser }) {
+function UserManagementPanel({ users, students, addUser, updateUser, deleteUser, setParentAccess }) {
   const ROLE_META = {
     principal: { label: "Principal", icon: "👩‍💼", color: "#6A1B9A", bg: "#F3E5F5" },
     teacher:   { label: "Teacher",   icon: "👩‍🏫", color: "#1565C0", bg: "#E3F2FD" },
@@ -3918,18 +4071,36 @@ function UserManagementPanel({ users, students, addUser, updateUser, deleteUser 
                       </span>
                     </td>
                     <td>
-                      <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700,
-                        background: u.active ? "#E8F5E9" : "#FFEBEE", color: u.active ? "#388E3C" : "#C62828" }}>
-                        {u.active ? "Active" : "Inactive"}
-                      </span>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700,
+                          background: u.active ? "#E8F5E9" : "#FFEBEE", color: u.active ? "#388E3C" : "#C62828" }}>
+                          {u.active ? "Active" : "Inactive"}
+                        </span>
+                        {u.role === "parent" && u.accessRevoked && (
+                          <span style={{ padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 800,
+                            background: "#FFF3E0", color: "#E65100", border: "1px solid #FFB74D" }}>
+                            🚫 Access Revoked
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td>
-                      <div style={{ display: "flex", gap: 6 }}>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                         <button className="btn btn-ghost btn-sm" onClick={() => openEdit(u)}>Edit</button>
                         <button className="btn btn-ghost btn-sm" style={{ color: u.active ? "#C62828" : "#388E3C" }}
                           onClick={() => updateUser(u.id, { active: !u.active })}>
                           {u.active ? "Disable" : "Enable"}
                         </button>
+                        {u.role === "parent" && (
+                          <button className="btn btn-sm"
+                            onClick={() => setParentAccess(u.id, !u.accessRevoked)}
+                            style={{ fontSize: 11, fontWeight: 700,
+                              background: u.accessRevoked ? "#E8F5E9" : "#FFF3E0",
+                              color: u.accessRevoked ? "#2E7D32" : "#E65100",
+                              border: `1.5px solid ${u.accessRevoked ? "#A5D6A7" : "#FFB74D"}` }}>
+                            {u.accessRevoked ? "🔓 Restore" : "🚫 Revoke"}
+                          </button>
+                        )}
                         <button className="btn btn-danger btn-sm" onClick={() => setConfirmDelete(u)}>🗑</button>
                       </div>
                     </td>
@@ -4713,7 +4884,7 @@ function SchoolProfileCard({ schoolProfile, setSchoolProfile, canEdit }) {
 }
 
 function SettingsPage({ role }) {
-  const { feeConfig, setFeeConfig, studentOverrides, setStudentOverrides, students: STUDENTS, resetAllData, users, addUser, updateUser, deleteUser, announcements: ANNOUNCEMENTS, addAnnouncement, deleteAnnouncement, exams: EXAMS, addExam, deleteExam, subjects: SUBJECTS_DATA, setSubjects, schoolProfile, setSchoolProfile } = useAppData();
+  const { feeConfig, setFeeConfig, studentOverrides, setStudentOverrides, students: STUDENTS, resetAllData, users, addUser, updateUser, deleteUser, setParentAccess, announcements: ANNOUNCEMENTS, addAnnouncement, deleteAnnouncement, exams: EXAMS, addExam, deleteExam, subjects: SUBJECTS_DATA, setSubjects, schoolProfile, setSchoolProfile } = useAppData();
   const [settingsTab, setSettingsTab] = useState("school");
   const canManageContent = role === "admin" || role === "principal" || role === "teacher";
   const [overrideStudent, setOverrideStudent] = useState(null);
@@ -4939,7 +5110,7 @@ function SettingsPage({ role }) {
       )}
 
       {settingsTab === "users" && role === "admin" && (
-        <UserManagementPanel users={users} students={STUDENTS} addUser={addUser} updateUser={updateUser} deleteUser={deleteUser} />
+        <UserManagementPanel users={users} students={STUDENTS} addUser={addUser} updateUser={updateUser} deleteUser={deleteUser} setParentAccess={setParentAccess} />
       )}
 
       {overrideStudent && canEdit && (
