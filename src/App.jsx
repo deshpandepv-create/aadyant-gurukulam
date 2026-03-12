@@ -89,6 +89,7 @@ const DEFAULT_FEE_STRUCTURE = {
 
 const DEFAULT_FEE_CONFIG = {
   activeYear: "2024-25",
+  closedYears: [],
   years: {
     "2024-25": {
       label: "June 2024 – March 2025",
@@ -428,6 +429,19 @@ function AppDataProvider({ children }) {
   const setStudentOverrides = v => { const nv = typeof v === "function" ? v(studentOverrides) : v; setOverridesRaw(nv); lsSet(LS_KEYS.overrides, nv); };
   const setUsers = v => { const nv = typeof v === "function" ? v(users) : v; setUsersRaw(nv); lsSet(LS_KEYS.users, nv); };
 
+  // Year closure helpers
+  const closedYears = feeConfig?.closedYears || [];
+  const isYearClosed = (yr) => (feeConfig?.closedYears || []).includes(yr);
+  const closeYear = (yr) => {
+    if (!yr || (feeConfig?.closedYears || []).includes(yr)) return;
+    const updated = { ...feeConfig, closedYears: [...(feeConfig.closedYears || []), yr] };
+    setFeeConfig(updated);
+  };
+  const reopenYear = (yr) => {
+    const updated = { ...feeConfig, closedYears: (feeConfig.closedYears || []).filter(y => y !== yr) };
+    setFeeConfig(updated);
+  };
+
   const addUser = (userData) => {
     const nextId = users.length > 0 ? Math.max(...users.map(u => u.id)) + 1 : 1;
     const newUser = { ...userData, id: nextId, active: true, joinDate: new Date().toISOString().slice(0, 10) };
@@ -569,6 +583,7 @@ function AppDataProvider({ children }) {
       addStudent, recordPayment, toggleSyllabusTopic, saveMarks, addExam, deleteExam, addAnnouncement, deleteAnnouncement, resetAllData,
       addUser, updateUser, deleteUser, updateStudentPlan,
       selectedYear, setSelectedYear, availableYears,
+      closedYears, isYearClosed, closeYear, reopenYear,
       subjects, setSubjects,
       schoolProfile, setSchoolProfile
     }}>
@@ -1486,30 +1501,37 @@ function YearSelector({ selectedYear: propYear, setSelectedYear: propSet, availa
   const setSelectedYear = propSet ?? ctx.setSelectedYear;
   const availableYears = propYears ?? ctx.availableYears;
   const feeConfig = propCfg ?? ctx.feeConfig;
+  const isYearClosed = ctx.isYearClosed || (() => false);
   const years = (availableYears || Object.keys(feeConfig?.years || { "2024-25": {} })).slice().sort();
-  const yearLabel = (yk) => feeConfig?.years?.[yk]?.label || yk;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
       <span style={{ fontSize: 11, fontWeight: 800, color: palette.muted, textTransform: "uppercase", letterSpacing: 1 }}>Year:</span>
-      {years.map(yk => (
-        <button key={yk} onClick={() => setSelectedYear(yk)}
-          style={{ padding: "5px 14px", borderRadius: 20,
-            border: `2px solid ${selectedYear === yk ? palette.navy : palette.border}`,
-            background: selectedYear === yk ? palette.navy : "white",
-            color: selectedYear === yk ? "white" : palette.navy,
-            fontWeight: 700, fontSize: 12, cursor: "pointer", transition: "all 0.15s" }}>
-          {yk}
-          {yk === feeConfig?.activeYear && selectedYear !== yk && (
-            <span style={{ marginLeft: 5, fontSize: 9, opacity: 0.7 }}>●</span>
-          )}
-        </button>
-      ))}
+      {years.map(yk => {
+        const closed = isYearClosed(yk);
+        const active = selectedYear === yk;
+        return (
+          <button key={yk} onClick={() => setSelectedYear(yk)}
+            title={closed ? `${yk} — Closed (read-only)` : yk}
+            style={{ padding: "5px 14px", borderRadius: 20,
+              border: `2px solid ${active ? (closed ? "#B71C1C" : palette.navy) : closed ? "#FFCDD2" : palette.border}`,
+              background: active ? (closed ? "#B71C1C" : palette.navy) : closed ? "#FFF3F3" : "white",
+              color: active ? "white" : closed ? "#B71C1C" : palette.navy,
+              fontWeight: 700, fontSize: 12, cursor: "pointer", transition: "all 0.15s",
+              display: "flex", alignItems: "center", gap: 5 }}>
+            {closed && <span style={{ fontSize: 10 }}>🔒</span>}
+            {yk}
+            {yk === feeConfig?.activeYear && !active && !closed && (
+              <span style={{ fontSize: 9, opacity: 0.7 }}>●</span>
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }
 
 function StudentsPage({ role, currentUser }) {
-  const { students: ALL_STUDENTS, marks: MARKS, addStudent, feeConfig, selectedYear, setSelectedYear, availableYears } = useAppData();
+  const { students: ALL_STUDENTS, marks: MARKS, addStudent, feeConfig, selectedYear, setSelectedYear, availableYears, isYearClosed } = useAppData();
   // Teachers see only their assigned class; admin/principal see all
   const teacherClass = role === "teacher" && currentUser?.assignedClass ? currentUser.assignedClass : null;
   const STUDENTS = teacherClass ? ALL_STUDENTS.filter(s => s.class === teacherClass) : ALL_STUDENTS;
@@ -1558,7 +1580,8 @@ function StudentsPage({ role, currentUser }) {
       (s.name.toLowerCase().includes(search.toLowerCase()) || s.rollNo.toLowerCase().includes(search.toLowerCase()));
   });
 
-  const canEdit = role === "admin" || role === "principal";
+  const yearLocked = isYearClosed ? isYearClosed(selectedYear) : false;
+  const canEdit = (role === "admin" || role === "principal") && !yearLocked;
 
   return (
     <div className="page">
@@ -1846,7 +1869,8 @@ function StudentsPage({ role, currentUser }) {
 
 // ---- FEES ----
 function FeesPage({ role, currentUser }) {
-  const { students: ALL_STUDENTS, feeConfig, studentOverrides, setFeeConfig, setStudentOverrides, recordPayment, updateStudentPlan, selectedYear, setSelectedYear, availableYears } = useAppData();
+  const { students: ALL_STUDENTS, feeConfig, studentOverrides, setFeeConfig, setStudentOverrides, recordPayment, updateStudentPlan, selectedYear, setSelectedYear, availableYears, isYearClosed } = useAppData();
+  const yearLocked = isYearClosed ? isYearClosed(selectedYear) : false;
   const linkedId = role === "parent" && currentUser?.linkedStudentId ? Number(currentUser.linkedStudentId) : null;
   const STUDENTS = linkedId ? ALL_STUDENTS.filter(s => s.id === linkedId) : ALL_STUDENTS;
   const [activeTab, setActiveTab] = useState("overview");
@@ -1856,7 +1880,7 @@ function FeesPage({ role, currentUser }) {
   const [showEnrollModal, setShowEnrollModal] = useState(false);
   const [showPlanModal, setShowPlanModal] = useState(false);
   const [planStudent, setPlanStudent] = useState(null);
-  const canManage = role === "admin" || role === "principal";
+  const canManage = (role === "admin" || role === "principal") && !yearLocked;
   const currentStudent = selectedStudent ? STUDENTS.find(s => s.id === selectedStudent.id) || STUDENTS[0] : STUDENTS[0];
 
   // Aggregates
@@ -1911,6 +1935,17 @@ function FeesPage({ role, currentUser }) {
           )}
         </div>
       </div>
+
+      {yearLocked && (
+        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 18px", borderRadius: 12,
+          background: "#FFEBEE", border: "2px solid #FFCDD2", marginBottom: 16 }}>
+          <span style={{ fontSize: 20 }}>🔒</span>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 13, color: "#B71C1C" }}>Academic Year {selectedYear} is Closed</div>
+            <div style={{ fontSize: 12, color: "#C62828" }}>This year's data is read-only. No payments can be recorded.</div>
+          </div>
+        </div>
+      )}
 
       {/* KPI STRIP */}
       {role !== "parent" && <div className="stats-grid" style={{ marginBottom: 20 }}>
@@ -2477,11 +2512,12 @@ function FeesPage({ role, currentUser }) {
 
 // ---- SYLLABUS ----
 function SyllabusPage({ role, currentUser }) {
-  const { syllabus: SYLLABUS, setSyllabus, toggleSyllabusTopic, feeConfig, selectedYear, setSelectedYear, availableYears, subjects: SUBJECTS_DATA } = useAppData();
+  const { syllabus: SYLLABUS, setSyllabus, toggleSyllabusTopic, feeConfig, selectedYear, setSelectedYear, availableYears, subjects: SUBJECTS_DATA, isYearClosed } = useAppData();
 
   const MONTHS = ["June","July","August","September","October","November","December","January","February","March"];
   const teacherClass = role === "teacher" && currentUser?.assignedClass ? currentUser.assignedClass : null;
-  const canEdit = role === "admin" || role === "principal" || role === "teacher";
+  const yearLocked = isYearClosed ? isYearClosed(selectedYear) : false;
+  const canEdit = (role === "admin" || role === "principal" || role === "teacher") && !yearLocked;
 
   const [selectedClass, setSelectedClass] = useState(() => teacherClass || "UKG");
   const [view, setView] = useState("month"); // "month" | "subject"
@@ -2631,6 +2667,17 @@ function SyllabusPage({ role, currentUser }) {
           background: uploadMsg.startsWith("✅") ? "#E8F5E9" : "#FFEBEE",
           color: uploadMsg.startsWith("✅") ? "#388E3C" : "#C62828" }}>
           {uploadMsg}
+        </div>
+      )}
+
+      {yearLocked && (
+        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 18px", borderRadius: 12,
+          background: "#FFEBEE", border: "2px solid #FFCDD2", marginBottom: 16 }}>
+          <span style={{ fontSize: 20 }}>🔒</span>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 13, color: "#B71C1C" }}>Academic Year {selectedYear} is Closed</div>
+            <div style={{ fontSize: 12, color: "#C62828" }}>Syllabus is read-only for this year. Topics cannot be marked or uploaded.</div>
+          </div>
         </div>
       )}
 
@@ -3156,7 +3203,7 @@ function ParentReportCard({ child, MARKS, selectedYear, feeConfig }) {
 }
 
 function MarksPage({ role, currentUser }) {
-  const { students: STUDENTS, marks: MARKS, saveMarks, selectedYear, setSelectedYear, availableYears, feeConfig } = useAppData();
+  const { students: STUDENTS, marks: MARKS, saveMarks, selectedYear, setSelectedYear, availableYears, feeConfig, isYearClosed } = useAppData();
 
   // Parents jump straight to their child's report — no class switching
   if (role === "parent") {
@@ -3173,7 +3220,8 @@ function MarksPage({ role, currentUser }) {
   const [editMode, setEditMode] = useState(false);
   const [editedMarks, setEditedMarks] = useState({});
   const classStudents = STUDENTS.filter(s => s.class === selectedClass);
-  const canEdit = role === "admin" || role === "principal" || role === "teacher";
+  const yearLocked = isYearClosed ? isYearClosed(selectedYear) : false;
+  const canEdit = (role === "admin" || role === "principal" || role === "teacher") && !yearLocked;
 
   return (
     <div className="page">
@@ -3184,6 +3232,17 @@ function MarksPage({ role, currentUser }) {
         </div>
         <YearSelector />
       </div>
+
+      {yearLocked && (
+        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 18px", borderRadius: 12,
+          background: "#FFEBEE", border: "2px solid #FFCDD2", marginBottom: 16 }}>
+          <span style={{ fontSize: 20 }}>🔒</span>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 13, color: "#B71C1C" }}>Academic Year {selectedYear} is Closed</div>
+            <div style={{ fontSize: 12, color: "#C62828" }}>Marks for this year are read-only. No changes can be made.</div>
+          </div>
+        </div>
+      )}
 
       {/* Class tabs — hidden for teachers (single class) */}
       {!teacherClass && <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
@@ -4038,7 +4097,8 @@ function UserManagementPanel({ users, students, addUser, updateUser, deleteUser 
 
 // ── FEE CONFIG PANEL ─────────────────────────────────────────────────────────
 function FeeConfigPanel({ feeConfig, setFeeConfig, canEdit, STUDENTS }) {
-  const { setSelectedYear: setGlobalYear } = useAppData();
+  const { setSelectedYear: setGlobalYear, isYearClosed, closeYear, reopenYear, closedYears } = useAppData();
+  const [confirmClose, setConfirmClose] = useState(null); // year string being confirmed
   const ensureYears = (cfg) => {
     if (cfg.years) return cfg;
     // migrate legacy config to new multi-year structure
@@ -4179,15 +4239,23 @@ function FeeConfigPanel({ feeConfig, setFeeConfig, canEdit, STUDENTS }) {
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: palette.muted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>Academic Year</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {Object.entries(cfg.years || {}).sort(([a],[b]) => a.localeCompare(b)).map(([yk, yd]) => (
-              <button key={yk} onClick={() => setCfg(p => ({ ...p, activeYear: yk }))}
-                style={{ padding: "8px 18px", borderRadius: 20, border: `2px solid ${yk === activeYear ? palette.navy : palette.border}`,
-                  background: yk === activeYear ? palette.navy : "white", color: yk === activeYear ? "white" : palette.navy,
-                  fontWeight: 800, fontSize: 14, cursor: "pointer", fontFamily: "Fredoka One, cursive", letterSpacing: 0.5 }}>
-                {yk}
-                {yk === activeYear && <span style={{ marginLeft: 6, fontSize: 10, opacity: 0.8 }}>({yd.label})</span>}
-              </button>
-            ))}
+            {Object.entries(cfg.years || {}).sort(([a],[b]) => a.localeCompare(b)).map(([yk, yd]) => {
+              const closed = isYearClosed(yk);
+              return (
+                <button key={yk} onClick={() => setCfg(p => ({ ...p, activeYear: yk }))}
+                  title={closed ? `${yk} — Closed (read-only)` : yk}
+                  style={{ padding: "8px 18px", borderRadius: 20,
+                    border: `2px solid ${yk === activeYear ? (closed ? "#B71C1C" : palette.navy) : closed ? "#FFCDD2" : palette.border}`,
+                    background: yk === activeYear ? (closed ? "#B71C1C" : palette.navy) : closed ? "#FFF3F3" : "white",
+                    color: yk === activeYear ? "white" : closed ? "#B71C1C" : palette.navy,
+                    fontWeight: 800, fontSize: 14, cursor: "pointer", fontFamily: "Fredoka One, cursive", letterSpacing: 0.5,
+                    display: "flex", alignItems: "center", gap: 6 }}>
+                  {closed && <span style={{ fontSize: 12 }}>🔒</span>}
+                  {yk}
+                  {yk === activeYear && <span style={{ marginLeft: 4, fontSize: 10, opacity: 0.8 }}>({yd.label})</span>}
+                </button>
+              );
+            })}
             {canEdit && (
               <button onClick={() => setShowAddYear(v => !v)}
                 style={{ padding: "8px 14px", borderRadius: 20, border: `2px dashed ${palette.border}`,
@@ -4198,10 +4266,44 @@ function FeeConfigPanel({ feeConfig, setFeeConfig, canEdit, STUDENTS }) {
           </div>
         </div>
         <div style={{ padding: "10px 20px", background: "linear-gradient(135deg, #1A2340, #2D4A8C)", borderRadius: 14, color: "white", textAlign: "center", minWidth: 120 }}>
-          <div style={{ fontSize: 28 }}>📅</div>
+          <div style={{ fontSize: 28 }}>{isYearClosed(activeYear) ? "🔒" : "📅"}</div>
           <div style={{ fontSize: 11, opacity: 0.8, fontWeight: 700 }}>{yearData.label}</div>
+          {isYearClosed(activeYear) && <div style={{ fontSize: 10, marginTop: 4, background: "#B71C1C", padding: "2px 8px", borderRadius: 8 }}>CLOSED</div>}
         </div>
       </div>
+
+      {/* Closed year banner / Close button */}
+      {isYearClosed(activeYear) ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 20px", borderRadius: 12, marginBottom: 20,
+          background: "#FFEBEE", border: "2px solid #FFCDD2" }}>
+          <span style={{ fontSize: 24 }}>🔒</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 800, fontSize: 14, color: "#B71C1C" }}>Academic Year {activeYear} is Closed</div>
+            <div style={{ fontSize: 12, color: "#C62828", marginTop: 2 }}>All data for this year is read-only. No edits, payments or marks can be recorded.</div>
+          </div>
+          {canEdit && (
+            <button onClick={() => { if (window.confirm(`Reopen ${activeYear}? This will allow editing again.`)) reopenYear(activeYear); }}
+              style={{ padding: "8px 16px", borderRadius: 10, background: "white", border: "2px solid #B71C1C",
+                color: "#B71C1C", fontWeight: 800, fontSize: 12, cursor: "pointer" }}>
+              🔓 Reopen
+            </button>
+          )}
+        </div>
+      ) : canEdit && (
+        <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 20px", borderRadius: 12, marginBottom: 20,
+          background: "#FFF8E1", border: "2px solid #FFE082" }}>
+          <span style={{ fontSize: 22 }}>📌</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 800, fontSize: 14, color: "#E65100" }}>Close this Academic Year</div>
+            <div style={{ fontSize: 12, color: "#BF360C", marginTop: 2 }}>Once closed, {activeYear} becomes read-only. Fees, marks, syllabus and student data cannot be modified.</div>
+          </div>
+          <button onClick={() => setConfirmClose(activeYear)}
+            style={{ padding: "8px 16px", borderRadius: 10, background: "#E65100", border: "none",
+              color: "white", fontWeight: 800, fontSize: 12, cursor: "pointer" }}>
+            🔒 Close Year
+          </button>
+        </div>
+      )}
 
       {/* Add year modal */}
       {showAddYear && (
@@ -4274,7 +4376,7 @@ function FeeConfigPanel({ feeConfig, setFeeConfig, canEdit, STUDENTS }) {
                           min="0"
                           step="100"
                           value={fees[m.key] ?? ""}
-                          disabled={!canEdit}
+                          disabled={!canEdit || isYearClosed(activeYear)}
                           onChange={e => updateFeeMode(cls, m.key, e.target.value)}
                           style={{ maxWidth: 110, fontWeight: 800, fontSize: 15, textAlign: "right" }}
                         />
@@ -4352,8 +4454,39 @@ function FeeConfigPanel({ feeConfig, setFeeConfig, canEdit, STUDENTS }) {
 
       {canEdit && (
         <div style={{ display: "flex", gap: 12 }}>
-          <button className="btn btn-primary" onClick={saveConfig}>💾 Save Fee Configuration</button>
-          <button className="btn btn-ghost" onClick={() => setCfg(ensureYears({ ...feeConfig }))}>↺ Reset</button>
+          <button className="btn btn-primary" onClick={saveConfig} disabled={isYearClosed(activeYear)}>💾 Save Fee Configuration</button>
+          <button className="btn btn-ghost" onClick={() => setCfg(ensureYears({ ...feeConfig }))} disabled={isYearClosed(activeYear)}>↺ Reset</button>
+        </div>
+      )}
+
+      {/* Confirm Close Year modal */}
+      {confirmClose && (
+        <div className="modal-overlay" onClick={() => setConfirmClose(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ width: 460 }}>
+            <div className="modal-header">
+              <div className="modal-title">🔒 Close Academic Year {confirmClose}?</div>
+              <button className="close-btn" onClick={() => setConfirmClose(null)}>✕</button>
+            </div>
+            <div style={{ padding: "20px 0 8px" }}>
+              <div style={{ background: "#FFEBEE", borderRadius: 12, padding: "16px", marginBottom: 16, fontSize: 13, color: "#C62828", lineHeight: 1.8 }}>
+                <strong>⚠️ This action will make {confirmClose} permanently read-only:</strong><br />
+                • No new fee payments can be recorded<br />
+                • Marks cannot be added or changed<br />
+                • Syllabus topics cannot be marked done/undone<br />
+                • Student data for this year cannot be edited
+              </div>
+              <div style={{ fontSize: 13, color: palette.muted, marginBottom: 20 }}>
+                You can reopen the year later from this same screen if needed.
+              </div>
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button className="btn btn-ghost" onClick={() => setConfirmClose(null)}>Cancel</button>
+                <button className="btn" onClick={() => { closeYear(confirmClose); setConfirmClose(null); }}
+                  style={{ background: "#B71C1C", color: "white", border: "none" }}>
+                  🔒 Yes, Close {confirmClose}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
