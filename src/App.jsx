@@ -396,7 +396,16 @@ function AppDataProvider({ children }) {
   const [announcements, setAnnouncementsRaw] = useState(() => lsGet(LS_KEYS.announcements, SEED_ANNOUNCEMENTS));
   const [feeConfig, setFeeConfigRaw]   = useState(() => lsGet(LS_KEYS.feeConfig, DEFAULT_FEE_CONFIG));
   const [studentOverrides, setOverridesRaw] = useState(() => lsGet(LS_KEYS.overrides, DEFAULT_STUDENT_FEE_OVERRIDES));
-  const [users, setUsersRaw] = useState(() => lsGet(LS_KEYS.users, SEED_USERS));
+  const [users, setUsersRaw] = useState(() => {
+    const stored = lsGet(LS_KEYS.users, SEED_USERS);
+    // Backfill passwordHash from SEED_USERS for accounts that have null hash
+    // (fixes devices that stored data before default passwords were added)
+    return stored.map(u => {
+      if (u.passwordHash) return u;
+      const seed = SEED_USERS.find(s => s.id === u.id);
+      return seed?.passwordHash ? { ...u, passwordHash: seed.passwordHash } : u;
+    });
+  });
   const [subjects, setSubjectsRaw] = useState(() => lsGet(LS_KEYS.subjects, SUBJECTS));
   const [schoolProfile, setSchoolProfileRaw] = useState(() => lsGet(LS_KEYS.school, DEFAULT_SCHOOL_PROFILE));
 
@@ -1105,9 +1114,11 @@ function LoginScreen({ onLogin, users }) {
         <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", padding: "12px", fontSize: 15, marginTop: 8 }} onClick={handleSubmit}>
           Sign In →
         </button>
-        <div style={{ textAlign: "center", marginTop: 16, fontSize: 12, color: palette.muted, lineHeight: 1.6 }}>
-          Default admin: <strong>admin@aadyant.edu.in</strong> / <strong>admin123</strong><br/>
-          Other users must be created by the admin with a password.
+        <div style={{ textAlign: "center", marginTop: 16, fontSize: 12, color: palette.muted, lineHeight: 1.8 }}>
+          <div><strong>Admin:</strong> admin@aadyant.edu.in / admin123</div>
+          <div><strong>Principal:</strong> principal@aadyant.edu.in / principal123</div>
+          <div><strong>Teachers:</strong> priya / ravi / deepa @aadyant.edu.in — [name]123</div>
+          <div><strong>Parents:</strong> rajesh.s / suresh.p @gmail.com — parent123</div>
         </div>
         <div style={{ textAlign: "center", marginTop: 10, fontSize: 11, color: palette.border }}>
           © Deshpande Education Foundation · {THEME_NAME} v{APP_VERSION}
