@@ -3,7 +3,7 @@ import React, { useState, useEffect } from "react";
 // ============================================================
 // APP IDENTITY
 // ============================================================
-const APP_VERSION = "0.9.2";
+const APP_VERSION = "0.9.9";
 const THEME_NAME  = "Vidyanjali";   // Sanskrit: "gift of knowledge" 🌸
 
 // ============================================================
